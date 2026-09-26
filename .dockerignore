@@ -1,0 +1,18 @@
+# Docker builds use the repo root as context (see docker/Dockerfile), but the
+# image only needs web/. Keep everything else out so builds stay fast; raw/
+# alone is ~500 MB. Patterns without **/ only match at the repo root.
+.git
+raw*
+**/node_modules
+**/__pycache__
+**/*.pyc
+web/dist
+web_test
+src
+Prompts
+Planning Phase
+docker/*.ps1
+*.md
+*.txt
+*.svg
+**/.env

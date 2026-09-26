@@ -1,4 +1,9 @@
-"""Load the raw CSVs into small in-memory tables the dev API serves.
+"""Load the data the API serves: from the raw CSVs, or from the bundle.
+
+Raw CSVs (raw/, ~500 MB, git-ignored) are joined into a few small tables.
+Those tables are saved as one compact file, medmap_data.json.gz, which is
+committed, so the server (and Docker image) can run without raw/. Rebuild it
+with `python web/api/build_data.py` after re-downloading raw data.
 
 Standard library only, so the demo runs on a bare Python install.
 Every join and fallback made here is documented in the project README
@@ -6,6 +11,9 @@ Every join and fallback made here is documented in the project README
 """
 
 import csv
+import datetime
+import gzip
+import json
 import os
 import re
 import time
@@ -31,6 +39,26 @@ ACTIVE_STATUSES = {"Designated", "Proposed For Withdrawal"}
 # HPSA designation types that describe an area or a population in an area.
 # Facility HPSAs (FQHCs, prisons, clinics, ...) are points, not areas.
 HPSA_AREA_TYPES = {"Geographic HPSA", "High Needs Geographic HPSA", "HPSA Population"}
+
+# Raw files the loader reads, relative to raw/.
+REQUIRED_RAW_FILES = [
+    os.path.join("PLACES", "places_tract.csv"),
+    os.path.join("PLACES", "places_zcta.csv"),
+    os.path.join("PLACES", "places_county.csv"),
+    os.path.join("RUCA", "2020-rural-urban-commuting-area-codes-census-tracts.csv"),
+    os.path.join("MUAP", "MUA_DET.csv"),
+    os.path.join("HPSA", "BCD_HPSA_FCT_DET_PC.csv"),
+    os.path.join("CMSHospital", "Hospital_General_Information.csv"),
+]
+
+BUNDLE_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "medmap_data.json.gz")
+BUNDLE_VERSION = 1
+TRACT_FIELDS = ["id", "state", "county_fips", "county", "lon", "lat", "pop", "ruca", "density", "mua", "hpsa"]
+
+
+def missing_raw_files(raw_dir):
+    """Required raw files that aren't in raw_dir (all of them if it doesn't exist)."""
+    return [f for f in REQUIRED_RAW_FILES if not os.path.isfile(os.path.join(raw_dir, f))]
 
 
 def _open(path):
@@ -63,7 +91,7 @@ class Dataset:
 
     def __init__(self, raw_dir):
         self.raw_dir = raw_dir
-        self.stats = {}
+        self.stats = {"source": "raw CSVs"}
         t0 = time.time()
         self.tracts = self._load_tracts()
         self._attach_ruca()
@@ -74,6 +102,48 @@ class Dataset:
 
     def path(self, *parts):
         return os.path.join(self.raw_dir, *parts)
+
+    # --- Bundle: the joined tables in one small file ---------------------------
+
+    def save_bundle(self, path=BUNDLE_PATH):
+        """Write the joined tables to a gzipped JSON file (columns for tracts)."""
+        columns = {name: [t[name] for t in self.tracts] for name in TRACT_FIELDS}
+        columns["mua"] = [int(v) for v in columns["mua"]]
+        columns["hpsa"] = [int(v) for v in columns["hpsa"]]
+        payload = {
+            "version": BUNDLE_VERSION,
+            "built": datetime.date.today().isoformat(),
+            "stats": {k: v for k, v in self.stats.items() if k != "load_seconds"},
+            "tracts": columns,
+            "hospitals": self.hospitals,
+        }
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=9, mtime=0) as gz:
+            gz.write(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        os.replace(tmp, path)
+
+    @classmethod
+    def from_bundle(cls, path=BUNDLE_PATH):
+        """Load the tables written by save_bundle(); takes a second or two."""
+        t0 = time.time()
+        with gzip.open(path, "rt", encoding="utf-8") as f:
+            payload = json.load(f)
+        if payload.get("version") != BUNDLE_VERSION:
+            raise ValueError(f"{path} is bundle version {payload.get('version')}, expected {BUNDLE_VERSION}. "
+                             "Rebuild it with `python web/api/build_data.py`.")
+        self = cls.__new__(cls)
+        self.raw_dir = None
+        columns = payload["tracts"]
+        self.tracts = [dict(zip(TRACT_FIELDS, row)) for row in zip(*(columns[name] for name in TRACT_FIELDS))]
+        for t in self.tracts:
+            t["mua"] = bool(t["mua"])
+            t["hpsa"] = bool(t["hpsa"])
+        self.hospitals = payload["hospitals"]
+        self.stats = dict(payload["stats"])
+        self.stats["source"] = f"bundle built {payload['built']}"
+        self.stats["load_seconds"] = round(time.time() - t0, 1)
+        self.states = sorted({t["state"] for t in self.tracts})
+        return self
 
     # --- Census tracts (population + centroid) ---------------------------------
 

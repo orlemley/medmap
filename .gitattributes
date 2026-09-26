@@ -1,0 +1,5 @@
+# Windows launchers must keep CRLF line endings or cmd.exe can misread them.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+# The prebuilt data bundle is binary (gzip).
+*.gz binary
