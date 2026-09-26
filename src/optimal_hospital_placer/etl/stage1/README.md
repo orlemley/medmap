@@ -88,10 +88,16 @@ Use `--raw-dir`, `--output-dir`, or `--batch-size` if needed. The default batch 
 is 1,000 rows to limit memory with wide AHRF files. Default directories are resolved
 from the runner's location, not the shell's current folder.
 
-## Explicitly deferred to stage 2
+## Later stages
+
+Stage 2 handles source interpretation before geography:
+
+- Interpret source-specific missing values, types, units and measurement years.
+- Apply reviewed variable rules and produce typed source tables and quality reports.
+
+Stage 3 handles geography and final assembly:
 
 - Choose/align tract and county geographic vintages (including RUCA 2020 vs 2023).
-- Interpret each source's missing/suppressed values, measurement years, and units.
 - Select AHRF variables and avoid double-counting thematic subsets.
 - Assign stable facility identities, deduplicate, geocode, and resolve care sites.
 - Read MUA/P/HPSA shapes and distinguish population from area designations.

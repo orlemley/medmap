@@ -56,7 +56,7 @@ def main() -> int:
                   'finished_utc': datetime.now(timezone.utc).isoformat(), 'raw_dir': str(raw),
                   'sources': args.sources, 'tables': len(tables), 'issues': len(issues),
                   'pyarrow_version': pyarrow.__version__, 'schema_version': 1,
-                  'next_stage': 'Choose geographic vintage, interpret types/missing codes, resolve facilities, then join.'}
+                  'next_stage': 'Stage 2: interpret source types and missing codes. Stage 3: geography, facility matching and joins.'}
         write_json(run / 'run.json', report)
         if not issues:
             write_json(output / 'latest_success.json', {'run_directory': str(run), **report})
