@@ -122,6 +122,12 @@ registry counts**, not certified counts of currently active facilities. Hospice,
 home-health and unclassified locations are flagged as possible offices.
 
 Census batch geocoding uses 1,000 records per request, below the 10,000 limit.
+Each batch gets up to five attempts for timeouts, connection errors, and HTTP
+408, 429, 500, 502, 503, or 504 responses. Delays between attempts are 15, 30,
+60, and 120 seconds; each attempt retains the 30-second connection and
+600-second read timeouts. Retry messages identify the batch and attempt.
+Other HTTP errors and invalid response contents fail immediately. If retries
+are exhausted, the run stops and previously completed batches remain cached.
 Only returned coordinates are used; they are assigned to our local 2023 polygons.
 The current geocoder benchmark can change, so cached responses include the
 benchmark, response, and retrieval timestamp. Nonmatches are retained; no postcode
@@ -133,6 +139,9 @@ The geocoder returns approximate street locations, not verified building entranc
 Uses `MUA_CMPPC_SHP.zip`, matching the local stage 1 inventory hash. The component
 field names were inspected during implementation. Only `Designated` records are
 included; the two designation types remain separate (`mua` versus `mup`).
+The DBF character field `MUASRCID` contains both five- and ten-digit designation
+IDs, matching the CSV identifiers. Both lengths are retained as text, including
+leading zeros; IDs are never truncated or padded.
 Governor's-exception designations are included in the corresponding MUA/MUP
 category, with their original type retained in the designation table. Invalid
 geometries are repaired explicitly and repair counts are reported. Conflicting
