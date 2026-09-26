@@ -32,26 +32,3 @@
 # --- Generic large/data files ---
 *.csv
 *.zip
-*.7z
-data/
-raw*/
-*.parquet
-
-# --- Python ---
-__pycache__/
-*.pyc
-*.pyo
-.ipynb_checkpoints/
-venv/
-.venv/
-*.egg-info/
-
-# --- Env / secrets ---
-.env
-*.env.local
-
-# --- OS / editor junk ---
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
