@@ -1,2 +1,4 @@
 *.zip
 /data/raw/
+/data/stage1/
+__pycache__/
