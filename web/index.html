@@ -3,39 +3,99 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Optimal Hospital Placer</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%23dc2626%27/%3E%3Cpath d=%27M6.5 3h3v3.5H13v3H9.5V13h-3V9.5H3v-3h3.5z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+  <title>MedMap: Hospital Placement</title>
+  <link rel="stylesheet" href="css/site.css">
 </head>
 <body>
-  <main class="panel">
-    <span class="badge">Healthcare Strategy Tool</span>
+  <nav class="site-nav" aria-label="Main">
+    <a class="brand" href="index.html" aria-label="MedMap home"><span class="brand-mark" aria-hidden="true">+</span><span class="brand-text">MedMap</span></a>
+    <ul class="nav-links">
+      <li><a href="index.html" aria-current="page">Home</a></li>
+      <li><a href="map.html">Map</a></li>
+      <li><a href="about.html">About</a></li>
+    </ul>
+    <div class="nav-right"><a href="https://github.com/orlemley/hackathon-237858">GitHub</a></div>
+  </nav>
 
-    <h1 class="title">Optimal Hospital Placer</h1>
-    <p class="subtitle">
-      Plan smarter hospital placement using access, demand, and rural coverage data.
+  <main class="page">
+    <p class="eyebrow">TigerHacks26</p>
+    <h1>Where should the next hospital go?</h1>
+    <p class="lead">
+      MedMap recommends sites for a new hospital that would cut driving distance
+      for the people farthest from care and take pressure off existing hospitals.
+      It combines census population, federal shortage-area designations, and the
+      locations of every hospital CMS tracks.
     </p>
-    <p class="meta" id="meta">Ready to optimize care access across communities.</p>
-
-    <div class="metrics">
-      <button class="card" type="button" data-detail="Coverage zones: how far residents are from the nearest hospital.">
-        <span class="card-label">Access</span>
-        <span class="card-value">Coverage zones</span>
-      </button>
-      <button class="card" type="button" data-detail="Population needs: where demand for care is highest.">
-        <span class="card-label">Demand</span>
-        <span class="card-value">Population needs</span>
-      </button>
-      <button class="card" type="button" data-detail="Underserved areas: rural regions with limited existing care.">
-        <span class="card-label">Rural</span>
-        <span class="card-value">Underserved areas</span>
-      </button>
-    </div>
-
     <div class="button-row">
-      <button class="start-button" id="start" type="button">Start</button>
+      <a class="button" href="map.html">Open the map</a>
+      <a class="button secondary" href="#how">How it works</a>
     </div>
+
+    <h2 id="how">How it works</h2>
+    <div class="card-grid">
+      <div class="card">
+        <span class="step-number">1</span>
+        <h3>Map existing care</h3>
+        <p>About 5,300 hospitals from CMS, and the distance from every census tract to the nearest one.</p>
+      </div>
+      <div class="card">
+        <span class="step-number">2</span>
+        <h3>Score every tract</h3>
+        <p>Each of 83,000 census tracts is a candidate site, scored on the four factors below.</p>
+      </div>
+      <div class="card">
+        <span class="step-number">3</span>
+        <h3>Rank the best sites</h3>
+        <p>The top sites appear on the map with a full score breakdown. Move the sliders and they update.</p>
+      </div>
+    </div>
+
+    <h2>What gets weighed</h2>
+    <p>You choose how much each factor matters with sliders on the map page.</p>
+    <div class="card-grid">
+      <div class="card">
+        <h3>Population</h3>
+        <p>People within the coverage radius of the site who have no hospital within that radius today.</p>
+      </div>
+      <div class="card">
+        <h3>Distance</h3>
+        <p>How many miles closer to a hospital those people would be, on average.</p>
+      </div>
+      <div class="card">
+        <h3>Shortage</h3>
+        <p>Whether the site is in a federally designated Medically Underserved Area or primary-care shortage area.</p>
+      </div>
+      <div class="card">
+        <h3>Cost</h3>
+        <p>Population density as a stand-in for land and build cost. Sparse areas score higher.</p>
+      </div>
+    </div>
+
+    <h2>Data sources</h2>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th>Source</th><th>Used for</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>CMS Hospital General Information</td><td>Existing hospitals: name, type, address, ZIP, rating</td></tr>
+          <tr><td>CDC PLACES (tract and ZCTA)</td><td>Tract population and centroids; ZIP-area centroids used to place hospitals</td></tr>
+          <tr><td>HRSA MUA/P</td><td>Medically Underserved Areas and Populations</td></tr>
+          <tr><td>HRSA HPSA (primary care)</td><td>Health Professional Shortage Areas</td></tr>
+          <tr><td>USDA RUCA 2020</td><td>Population density and rural-urban codes per tract</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Limitations</h2>
+    <p class="note">
+      This is a hackathon prototype. Distances are straight-line, not driving
+      distance. Hospital locations are ZIP-code centroids, not street addresses.
+      The scoring on the map is a placeholder until the placement algorithm is finished.
+    </p>
   </main>
 
-  <script src="app.js"></script>
+  <footer class="site-footer">MedMap · TigerHacks26</footer>
 </body>
 </html>

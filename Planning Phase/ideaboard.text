@@ -1,0 +1,44 @@
+MedMap Project
+
+Description: MedMap visualizes the current hospital network, 
+identifies areas with poor access, and recommends where an 
+additional hospital could produce the greatest improvement 
+in access.
+
+Explanation: We don't simply choose the place with the fewest hospitals. 
+For every potential location, MedMap simulates adding a hospital and 
+calculates how much that location would reduce population-weighted 
+travel distance to care.
+
+Schema:
+BEFORE
+- 42,381 people are >30 miles from a hospital
+
+PROPOSED HOSPITAL
+- Jefferson County, MO
+
+AFTER
+- 17,942 people are >30 miles from a hospital
+
+- ↓ 24,439 residents gain access within 30 miles
+
+Hospital Detail
+────────────────────
+University Hospital
+Columbia, Missouri
+
+Type: Acute Care
+Beds: 247
+Population within 30 mi: 104,512
+
+────────────────────
+★ MedMap Recommendation
+
+Recommended area:
+[location]
+
+Residents helped:
+24,439
+
+Avg. distance before:
+34.8 mi

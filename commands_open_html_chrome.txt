@@ -1,0 +1,2 @@
+cd web
+start chrome ./index.html

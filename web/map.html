@@ -1,13 +1,122 @@
-<link href='https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css' rel='stylesheet' />
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%23dc2626%27/%3E%3Cpath d=%27M6.5 3h3v3.5H13v3H9.5V13h-3V9.5H3v-3h3.5z%27 fill=%27%23fff%27/%3E%3C/svg%3E">
+  <title>MedMap: Map</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@6.11.2/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/map.css">
+</head>
+<body class="map-page">
+  <nav class="site-nav" aria-label="Main">
+    <a class="brand" href="index.html" aria-label="MedMap home"><span class="brand-mark" aria-hidden="true">+</span><span class="brand-text">MedMap</span></a>
+    <ul class="nav-links">
+      <li><a href="index.html">Home</a></li>
+      <li><a href="map.html" aria-current="page">Map</a></li>
+      <li><a href="about.html">About</a></li>
+    </ul>
+    <div class="nav-right"><a href="https://github.com/orlemley/hackathon-237858">GitHub</a></div>
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded="true">Controls</button>
+  </nav>
 
-<div id='map' style='width: 400px; height: 300px;'></div>
-<script type='module'>
-import * as maplibregl from 'https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.mjs';
+  <div class="map-layout">
+    <div class="map-wrap">
+      <div id="map" aria-label="Map of hospitals and recommended sites"></div>
 
-const map = new maplibregl.Map({
-  container: 'map',
-  style: 'https://demotiles.maplibre.org/style.json', // stylesheet location
-  center: [-74.5, 40], // starting position [lng, lat]
-  zoom: 9 // starting zoom
-});
-</script>
+      <section class="legend" id="legend" aria-label="Legend">
+        <button class="legend-header" id="legend-toggle" type="button" aria-expanded="true" aria-controls="legend-body">
+          Legend <span class="chevron" aria-hidden="true"></span>
+        </button>
+        <div class="legend-body" id="legend-body">
+          <div class="legend-row"><span class="swatch swatch-hospital"></span>Existing hospital</div>
+          <div class="legend-row"><span class="swatch swatch-candidate"><span>1</span></span>Recommended site (rank)</div>
+          <div class="legend-scale">
+            <span>Score</span>
+            <span class="ramp ramp-candidate"></span>
+            <span class="ramp-labels"><span>low</span><span>high</span></span>
+          </div>
+          <div class="legend-row"><span class="swatch swatch-ring"></span>Coverage radius</div>
+          <div class="legend-scale">
+            <span id="legend-heatmap-label">Population</span>
+            <span class="ramp ramp-heatmap"></span>
+            <span class="ramp-labels"><span>fewer</span><span>more</span></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <aside class="sidebar" id="sidebar" aria-label="Controls">
+      <div class="status" id="status" role="status" aria-live="polite">Loading…</div>
+
+      <section class="panel">
+        <h2>Region</h2>
+        <label class="field">
+          <span>Show</span>
+          <select id="state-select">
+            <option value="">Entire U.S.</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Weights</h2>
+          <button class="link-button" id="reset-weights" type="button">Reset</button>
+        </div>
+        <div id="weights"></div>
+        <div class="weight-total">
+          <span>Total <strong id="weight-total">1.00</strong></span>
+          <button class="link-button" id="normalize-weights" type="button">Make total 1</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Placement</h2>
+        <label class="field">
+          <span>Coverage radius <output id="radius-output">30 mi</output></span>
+          <input id="radius-range" type="range" min="5" max="100" step="1" value="30">
+        </label>
+        <div class="field-row">
+          <label class="field compact">
+            <span>Radius (mi)</span>
+            <input id="radius-input" type="number" min="5" max="100" step="1" value="30" inputmode="numeric">
+          </label>
+          <label class="field compact">
+            <span>Sites</span>
+            <input id="k-input" type="number" min="1" max="25" step="1" value="5" inputmode="numeric">
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Recommended sites</h2>
+        <ol class="results" id="results"></ol>
+      </section>
+
+      <section class="panel">
+        <h2>Layers</h2>
+        <label class="check"><input type="checkbox" id="layer-hospitals" checked> Hospitals</label>
+        <label class="check"><input type="checkbox" id="layer-candidates" checked> Recommended sites</label>
+        <label class="check"><input type="checkbox" id="layer-rings" checked> Coverage radius around sites</label>
+        <label class="check"><input type="checkbox" id="layer-heatmap"> Heatmap</label>
+        <label class="field indent">
+          <span>Heatmap shows</span>
+          <select id="heatmap-mode">
+            <option value="all">All population</option>
+            <option value="uncovered">Population outside the radius of any hospital</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="panel">
+        <h2>Hospital types</h2>
+        <div id="type-filters"></div>
+      </section>
+    </aside>
+  </div>
+
+  <script type="module" src="js/map.js"></script>
+</body>
+</html>
