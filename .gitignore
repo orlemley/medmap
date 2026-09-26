@@ -33,6 +33,10 @@
 *.csv
 *.zip
 /data/raw/
+<<<<<<< HEAD
+/data/stage1/
+__pycache__/
+=======
 
 *.7z
 data/
@@ -57,3 +61,4 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+>>>>>>> cb6eb893c8e8782d9fde7cde9e7b986b7b76a02f

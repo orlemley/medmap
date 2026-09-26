@@ -38,7 +38,7 @@ $sourceDescriptions = [ordered]@{
     CMSFacilities = 'Latest QIES/iQIES provider files and facility enrollment CSVs (selected catalog datasets)'
     AHRF = 'County and state/national CSV ZIPs plus technical documentation'
     HPSA = 'Primary care, dental, mental health CSVs and metadata; optional shapefiles'
-    MUAP = 'Medically underserved areas/populations CSV and metadata; optional shapefiles'
+    MUAP = 'Medically underserved areas/populations CSV, metadata, and designation/component shapefiles'
     PLACES = 'Full GIS-friendly CSV exports for selected geographies plus metadata'
     ACS = 'ACS 5-year detailed-table API responses for selected variables and county/tract geography'
     SVI = 'Nationally ranked county/tract CSVs; optional geodatabase ZIPs'
@@ -152,10 +152,8 @@ foreach ($source in $Sources) {
             MUAP {
                 Add-Hrsa $source 'MUA_DET.csv'
                 Add-Hrsa $source 'MUA_DATAMART_METADATA.XLSX'
-                if ($IncludeBoundaries) {
-                    Add-Hrsa $source 'MUA_SHP.zip'
-                    Add-Hrsa $source 'MUA_CMPPC_SHP.zip'
-                }
+                Add-Hrsa $source 'MUA_SHP.zip'
+                Add-Hrsa $source 'MUA_CMPPC_SHP.zip'
             }
             PLACES {
                 # CDC's current-release aliases; metadata records the actual release.
