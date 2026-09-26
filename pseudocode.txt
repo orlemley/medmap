@@ -1,0 +1,17 @@
+1. UI
+    a. map
+    b. darker colors: high value fo
+
+
+File	Purpose
+.shp	The main geometry file — stores the actual shapes (points, lines, or polygons) and their 
+        coordinates. This is why it's huge (80 MB) — it holds all the polygon boundaries.
+.shx	The shape index — a lookup table that lets software jump to a specific shape in the .shp file 
+        quickly, instead of reading it start to finish.
+.dbf	The attribute table (dBASE format) — a row per shape, holding the non-spatial data 
+        (names, IDs, categories, etc.) associated with each polygon. Its 538 KB size suggests a fair number of 
+        records/fields.
+.prj	The projection file — a plain-text description of the coordinate system/spatial reference used, 
+        so the shapes line up correctly on a map.
+.cpg	The character encoding file — tells software what text encoding (e.g., UTF-8) to use when 
+        reading the .dbf attribute text.
