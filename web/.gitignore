@@ -1,0 +1,4 @@
+node_modules/
+# dist/ is committed on purpose: the Python server serves it, so teammates
+# without Node can run the demo. Rebuild it with `npm run build` after
+# changing anything in src/.

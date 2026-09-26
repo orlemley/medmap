@@ -1,0 +1,26 @@
+{
+  "name": "medmap-web",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "MedMap frontend: React + MapLibre GL JS, built with Vite",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "api": "python api/server.py"
+  },
+  "dependencies": {
+    "maplibre-gl": "6.11.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router": "8.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.1",
+    "vite": "8.3.1"
+  }
+}

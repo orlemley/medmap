@@ -18,9 +18,9 @@ results on an interactive map where you set how much each factor matters.
 
 - [Quick start](#quick-start)
 - [What's in `web/`](#whats-in-web)
+- [Working on the frontend](#working-on-the-frontend)
 - [Using the map](#using-the-map)
 - [API reference](#api-reference)
-- [Serving the frontend separately](#serving-the-frontend-separately)
 - [Scoring (placeholder)](#scoring-placeholder)
 - [What the data files contain](#what-the-data-files-contain)
 - [Data assumptions](#data-assumptions)
@@ -32,9 +32,13 @@ results on an interactive map where you set how much each factor matters.
 
 ## Quick start
 
-**Requirements:** Python 3.8 or newer. No packages to install: the server uses
-only the standard library. You need an internet connection in the browser for
-the map tiles and the MapLibre library (both load from CDNs).
+**Requirements to run the demo:** Python 3.8 or newer. No packages to install:
+the server uses only the standard library, and the built React site
+(`web/dist/`) is committed, so **Node.js is not needed just to run it**. The
+browser needs an internet connection for the map tiles.
+
+Node.js 22.12+ is only needed if you want to **change the frontend** (see
+[Working on the frontend](#working-on-the-frontend)).
 
 1. **Get the data.** The server reads the raw CSVs from `raw/` in the repo root.
    `raw/` is git-ignored, so each person downloads it themselves. On Windows:
@@ -46,20 +50,24 @@ the map tiles and the MapLibre library (both load from CDNs).
    Those five sources are the only ones the map needs. See
    `src/optimal_hospital_placer/etl/get_raw_data.README.md` for the other options.
 
-2. **Start the server** from the repo root:
+2. **Start MedMap.** On Windows, double-click **`web/start.cmd`**. It finds
+   Python, starts the server, and opens the site in your browser once the data
+   has loaded (about 10–20 seconds). Close its window to stop the server.
+
+   Or from a terminal in the repo root (any OS):
 
    ```bash
-   python web/api/server.py
+   python web/api/server.py --open
    ```
 
-   On macOS/Linux use `python3` if `python` isn't found. It takes about
-   10–15 seconds to load the data, then prints:
+   On macOS/Linux use `python3` if `python` isn't found. It prints:
 
    ```
    MedMap running at http://127.0.0.1:8000/  (Ctrl+C to stop)
    ```
 
-3. **Open <http://127.0.0.1:8000/>** in a browser.
+3. The browser opens **<http://127.0.0.1:8000/>** (without `--open`, open it
+   yourself). The map is at <http://127.0.0.1:8000/map>.
 
 Options:
 
@@ -68,42 +76,125 @@ Options:
 | `--port` | `8000` | Port for both the API and the site |
 | `--host` | `127.0.0.1` | Use `0.0.0.0` to let other devices on your network connect (for example, to demo from a phone) |
 | `--raw` | `<repo>/raw` | Path to the data folder, if it lives somewhere else |
+| `--open` | off | Open the site in the default browser once the server is ready |
 
-> Open the site **through the server** (`http://...`), not by double-clicking
-> the HTML files. Browsers block JavaScript modules on `file://` pages.
+> **Don't open the HTML files directly** (double-clicking them, or
+> `start chrome ./index.html`). Browsers won't run the app from a `file://`
+> page, and the map needs the server for its data. That's why the map was
+> blank before. If you do open one that way, the page now tells you how to
+> start MedMap properly.
 
 ---
 
 ## What's in `web/`
 
+The frontend is a **React** app built with **Vite**. The Python server
+serves the built copy in `web/dist/` and the JSON API on the same port.
+
 ```
 web/
-├── index.html            Home page: what MedMap is and how it works
-├── map.html              The interactive map
-├── about.html            Team, GitHub link, credits (names still TODO)
-├── css/
-│   ├── site.css          Shared styles (nav, pages, colours)
-│   └── map.css           Map page: sidebar, legend, popups
-├── js/
-│   ├── config.js         API_BASE and basemap URL: the only settings you'd change
-│   └── map.js            All map behaviour
+├── start.cmd                 Windows: double-click to start MedMap
+├── index.html                Vite entry page (loads src/main.jsx)
+├── package.json              npm scripts: dev, build, preview, api
+├── vite.config.js            Dev server on 5173, forwards /api to Python on 8000
+├── public/favicon.svg
+├── dist/                     Built site (committed; rebuild with `npm run build`)
+├── src/
+│   ├── main.jsx              Mounts <App/> into index.html's #root
+│   ├── App.jsx               Routes: /  /map  /about (the map page loads on demand)
+│   ├── config.js             API_BASE, basemap style, GitHub link
+│   ├── pages/
+│   │   ├── HomePage.jsx
+│   │   ├── MapPage.jsx       Owns the map page state: settings, data, popups
+│   │   └── AboutPage.jsx     Team, GitHub link, credits (names still TODO)
+│   ├── components/
+│   │   ├── Layout.jsx        Top nav + page outlet
+│   │   ├── map/
+│   │   │   ├── MedMap.jsx    MapLibre wrapped as a React component
+│   │   │   ├── layers.js     Sources, layers, and feature-state expressions
+│   │   │   ├── Popups.jsx    Hospital and site popups (React, rendered into MapLibre popups)
+│   │   │   └── Legend.jsx    Bottom-right legend: collapsible and closable
+│   │   └── sidebar/
+│   │       └── Controls.jsx  Region, weights, placement, results, layers, type filter
+│   ├── hooks/
+│   │   ├── useDebouncedValue.js
+│   │   └── useOptimize.js    Calls /api/optimize, cancels outdated requests
+│   ├── lib/                  api.js, constants.js, format.js, geo.js
+│   └── styles/               site.css, map.css
 └── api/
-    ├── server.py         Dev server: JSON API and static files on one port
-    ├── data_loader.py    Reads raw CSVs into memory and joins them
+    ├── server.py             JSON API + serves web/dist on one port
+    ├── data_loader.py        Reads raw CSVs into memory and joins them
     └── placeholder_optimizer.py   Stand-in scoring until /algorithm exists
 ```
+
+**How React and the map connect:** `MapPage` holds all the state (weights,
+radius, layers, the open popup, and so on) and passes it as props to
+`<MedMap>`. `MedMap` creates the MapLibre map once and uses one `useEffect`
+per concern to push props into it: GeoJSON sources, layer visibility, the
+hospital-type filter, and feature-state for hover and selection. MapLibre's own
+events (hover, click) call back up through `onHospitalsClick`,
+`onCandidateClick`, `onCandidateHover` and `onPopupClose`. Popup contents are
+ordinary React components rendered into the MapLibre popup with a portal.
+`MapPage` calls `fitBounds` and `focusOn` on the map through a `ref`.
 
 The frontend only talks to the backend over HTTP (`/api/...`). It never
 imports Python code, so the placeholder can be replaced without touching the
 frontend.
 
 `web_test/` holds the earlier prototype (the HTML start screen ported from
-`main.py` and the first MapLibre experiment). The new `web/` replaces it.
+`main.py` and the first MapLibre experiment). `web/` replaces it.
 `web_test/` was left untouched.
 
-**Libraries:** [MapLibre GL JS 6.11.2](https://maplibre.org/) (ESM build from
-jsDelivr) and [OpenFreeMap](https://openfreemap.org/) "positron" tiles. Both are
-free and need no API key. No framework and no build step.
+**Libraries:** [React 19](https://react.dev/),
+[React Router 8](https://reactrouter.com/),
+[MapLibre GL JS 6.11.2](https://maplibre.org/) (bundled from npm, not a CDN),
+[Vite 8](https://vite.dev/), and [OpenFreeMap](https://openfreemap.org/)
+"positron" tiles. None needs an API key.
+
+---
+
+## Working on the frontend
+
+Install [Node.js](https://nodejs.org/) 22.12 or newer (LTS is fine), then once:
+
+```bash
+cd web
+npm install
+```
+
+**Day to day**, run two terminals:
+
+```bash
+python web/api/server.py          # terminal 1, from the repo root: API on :8000
+cd web && npm run dev             # terminal 2: React app on http://localhost:5173
+```
+
+Open <http://localhost:5173/>. Vite reloads the page as you save files and
+forwards `/api/...` to the Python server, so everything is one origin.
+
+**Before committing frontend changes**, rebuild the copy the Python server
+serves:
+
+```bash
+cd web && npm run build           # writes web/dist/
+```
+
+`web/dist/` is committed on purpose so teammates without Node can still run
+the demo. If you change `src/` and forget to rebuild, `start.cmd` will show the
+old version.
+
+Notes:
+
+- In `npm run dev`, React's StrictMode mounts each component twice to catch
+  bugs, so you'll see two `/api/optimize` requests on page load (the first is
+  cancelled). The production build sends one.
+- MapLibre 6 needs its web worker handed to it explicitly under a bundler.
+  `MedMap.jsx` does this with
+  `import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"`.
+  Don't remove it, or no map tiles will load.
+- To point the frontend at a different API (for example the future
+  `/algorithm` server), build with `VITE_API_BASE=http://127.0.0.1:8001 npm run build`.
+  The Python API sends CORS headers, so a different origin works.
 
 ---
 
@@ -116,10 +207,10 @@ free and need no API key. No framework and no build step.
 | **Coverage radius** | Slider (5–100 mi) or number box. This is the distance at which a hospital counts as "reachable". It's used in scoring, drawn as the dashed rings, and used by the "beyond radius" heatmap. |
 | **Sites** | How many recommendations to return (1–25). |
 | **Recommended sites** list | Hover a row to highlight the site on the map. Click it to fly there and open its score breakdown. |
-| **Layers** | Show or hide hospitals, recommended sites, coverage rings and the heatmap. Hiding a layer only changes its `visibility`, so it's never removed and re-added. |
+| **Layers** | Show or hide hospitals, recommended sites, coverage rings and the heatmap. Hiding a layer only changes its `visibility`, so it's never removed and re-added. The **Heatmap** button in the map's top-right corner (as on the whiteboard sketch) is a shortcut for the same switch. |
 | **Heatmap shows** | *All population* (tract populations), or *Population outside the radius of any hospital*, which shows the underserved people the scoring is trying to reach. |
 | **Hospital types** | Show or hide markers by CMS hospital type (with counts). This is display only: scoring always uses the coverage hospitals listed [below](#data-assumptions). |
-| **Legend** (bottom left) | Collapsible. It starts collapsed on phones. |
+| **Legend** (bottom right, as on the sketch) | Click the title to collapse it, or **×** to close it (a small **Legend** button brings it back). It starts collapsed on phones. |
 
 On the map:
 
@@ -138,10 +229,12 @@ On the map:
 
 **Shareable URLs:** the weights, radius, number of sites and state are kept in
 the address bar, for example
-`map.html?w_population=0.5&w_distance=0.3&w_shortage=0.2&w_cost=0&radius=20&k=5&state=MO`.
-Copy the link to share a view.
+`/map?w_population=0.5&w_distance=0.3&w_shortage=0.2&w_cost=0&radius=20&k=5&state=MO`.
+Copy the link to share a view. Old `map.html` links still work (they redirect).
 
-**Phones:** the sidebar becomes a drawer opened with the **Controls** button.
+**Phones:** the sidebar becomes a drawer opened with the **Controls** button
+at the map's top left, and closed with **Close controls** at the top of the
+drawer.
 
 **Debugging:** the MapLibre map object is available in the browser console as
 `window.medmapMap`.
@@ -222,21 +315,6 @@ milliseconds, because weight-independent factors are cached per
 
 ---
 
-## Serving the frontend separately
-
-The API sends CORS headers, so the static site can run on its own port:
-
-```bash
-python web/api/server.py --port 8000                 # API (still serves the site too)
-python -m http.server 5500 --directory web            # static site only
-```
-
-Then set `API_BASE` in `web/js/config.js` to `"http://127.0.0.1:8000"` and open
-<http://127.0.0.1:5500/map.html>. If `API_BASE` is wrong, the map shows a
-"Can't reach the MedMap API" message explaining how to fix it.
-
----
-
 ## Scoring (placeholder)
 
 > This is a **stand-in** so the map shows real, explainable results. It
@@ -280,7 +358,7 @@ If every weight is 0, all four are treated as equal.
 
 **Default weights:** population **0.4**, distance **0.3**, shortage **0.2**,
 cost **0.1**. They're defined in both `web/api/server.py` (`DEFAULT_WEIGHTS`)
-and `web/js/map.js` (`DEFAULT_WEIGHTS`).
+and `web/src/lib/constants.js` (`DEFAULT_WEIGHTS`).
 
 **Picking k sites:** sort by score (ties go to more uncovered population, then
 tract id). Walk down the list, skipping any candidate closer than `radius`
@@ -426,8 +504,9 @@ ready, either:
   `uncovered_population`, `avg_distance_reduction_mi`, `nearest_hospital_mi`,
   `in_mua`, `in_hpsa`, `density_per_sq_mi`, `density_imputed`,
   `tract_population`, `tract_id`, `county` and `state`. Or:
-- **Run the algorithm's own API** and point `API_BASE` in `web/js/config.js` at
-  it. It must also provide `/api/states` and `/api/hospitals` (and
+- **Run the algorithm's own API** and build the frontend with
+  `VITE_API_BASE` pointing at it (see [Working on the frontend](#working-on-the-frontend)).
+  It must also provide `/api/states` and `/api/hospitals` (and
   `/api/population` for the heatmap) in the same shapes.
 
 ---
@@ -438,8 +517,12 @@ ready, either:
 |---|---|
 | `Data folder not found` when starting | Download the data (step 1) or pass `--raw path/to/raw`. |
 | `KeyError` or `FileNotFoundError` naming a CSV | One of the five required sources is missing. Re-run the download for `CMSHospital,PLACES,HPSA,MUAP,RUCA`. |
-| Map shows "Can't reach the MedMap API" | Start `python web/api/server.py` and open the page from `http://127.0.0.1:8000/`, or fix `API_BASE`. |
-| Blank page, or a console error about modules | You opened the HTML file directly. Use the server URL. |
+| Page says "Open MedMap through its server" | You opened `index.html` as a file. Double-click `web/start.cmd` or run `python web/api/server.py --open`. |
+| Map shows "Can't reach the MedMap API" | The server isn't running, or (in `npm run dev`) it isn't on port 8000. Start `python web/api/server.py`. |
+| Page says "The MedMap site hasn't been built" | `web/dist/` is missing. Run `npm install` and `npm run build` in `web/`. |
+| `start.cmd` says Python isn't installed | Install Python 3 from python.org (tick "Add python.exe to PATH") or run `winget install Python.Python.3.12`. |
+| Changes in `web/src/` don't show up at :8000 | The server shows the built copy. Run `npm run build` in `web/`, or use `npm run dev` while editing. |
+| Map area is blank but the sidebar works | Your browser lacks WebGL2 (MapLibre 6 requires it); the map area says so. Use a current Chrome, Edge, Firefox or Safari. |
 | Grey map with no streets | The tile CDN is unreachable (offline or firewall). Hospitals and sites still draw. |
 | `Address already in use` | Something else is on port 8000. Use `--port 8001`. |
 | First score takes a few seconds | Normal for a new radius nationwide. Later slider moves are near-instant. |
