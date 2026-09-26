@@ -1,7 +1,12 @@
-"""MedMap dev server: the JSON API and the static site on one port.
+"""MedMap server: the JSON API and the built React site on one port.
 
     python web/api/server.py                 # http://127.0.0.1:8000
+    python web/api/server.py --open          # ...and open it in the browser
     python web/api/server.py --port 9000 --raw path/to/raw
+
+The site is the React build in web/dist (made by `npm run build` in web/).
+Page routes such as /map and /about all get dist/index.html, and React
+Router picks the page in the browser.
 
 Standard library only. Endpoints (all GET, all JSON):
 
@@ -19,7 +24,9 @@ import json
 import os
 import sys
 import time
+import threading
 import traceback
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -33,6 +40,7 @@ from data_loader import Dataset  # noqa: E402
 from placeholder_optimizer import PlaceholderOptimizer  # noqa: E402
 
 WEB_ROOT = os.path.dirname(API_DIR)
+DIST_ROOT = os.path.join(WEB_ROOT, "dist")
 DEFAULT_RAW = os.path.join(os.path.dirname(WEB_ROOT), "raw")
 
 DEFAULT_WEIGHTS = {"population": 0.4, "distance": 0.3, "shortage": 0.2, "cost": 0.1}
@@ -43,12 +51,29 @@ STATIC_TYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".mjs": "text/javascript; charset=utf-8",
+    ".map": "application/json; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".webp": "image/webp",
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".ico": "image/x-icon",
 }
+
+
+NOT_BUILT_PAGE = b"""<!DOCTYPE html><meta charset="utf-8"><title>MedMap: not built</title>
+<body style="font-family:system-ui,sans-serif;max-width:640px;margin:64px auto;padding:0 20px">
+<h1>The MedMap site hasn't been built</h1>
+<p>The API is running, but <code>web/dist</code> is missing. Build the React app once:</p>
+<pre>cd web
+npm install
+npm run build</pre>
+<p>Then reload this page. Or, while developing, run <code>npm run dev</code> in <code>web/</code>
+and open the address it prints (it forwards <code>/api</code> to this server).</p>
+</body>"""
 
 
 class BadRequest(Exception):
@@ -156,6 +181,15 @@ class MedMapAPI:
         return response
 
 
+class MedMapServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # A browser closing a tab or cancelling a request mid-connection isn't
+        # a server problem; skip the traceback for those.
+        if isinstance(sys.exc_info()[1], (ConnectionAbortedError, ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def make_handler(api):
     routes = {
         "/api/health": api.health,
@@ -191,33 +225,59 @@ def make_handler(api):
             if route is None:
                 return self._json(404, {"error": f"No endpoint {url.path}"})
             try:
-                self._json(200, route(parse_qs(url.query)))
+                status, payload = 200, route(parse_qs(url.query))
             except BadRequest as e:
-                self._json(400, {"error": str(e)})
+                status, payload = 400, {"error": str(e)}
             except Exception:
                 traceback.print_exc()
-                self._json(500, {"error": "Internal server error; see the server console."})
+                status, payload = 500, {"error": "Internal server error; see the server console."}
+            self._json(status, payload)
 
         def _json(self, status, payload):
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             self._send(status, "application/json; charset=utf-8", body, cors=True, cache="no-store")
 
         def _static(self, path):
-            rel = "index.html" if path in ("", "/") else path.lstrip("/")
-            full = os.path.realpath(os.path.join(WEB_ROOT, rel))
-            ext = os.path.splitext(full)[1].lower()
-            inside = os.path.commonpath([full, WEB_ROOT]) == WEB_ROOT
-            is_api_source = os.path.commonpath([full, API_DIR]) == API_DIR
-            if not inside or is_api_source or ext not in STATIC_TYPES or not os.path.isfile(full):
+            index = os.path.join(DIST_ROOT, "index.html")
+            if not os.path.isfile(index):
+                return self._send(503, "text/html; charset=utf-8", NOT_BUILT_PAGE, cache="no-store")
+
+            rel = path.lstrip("/")
+            full = os.path.realpath(os.path.join(DIST_ROOT, rel))
+            try:
+                inside = os.path.commonpath([full, DIST_ROOT]) == DIST_ROOT
+            except ValueError:  # different drive on Windows
+                inside = False
+            ext = os.path.splitext(rel)[1].lower()
+
+            if rel and inside and os.path.isfile(full):
+                if ext not in STATIC_TYPES:
+                    return self._send(404, "text/plain; charset=utf-8", b"Not found")
+                # Vite puts a content hash in every file name under assets/, so
+                # those can be cached forever; everything else is rechecked.
+                cache = "public, max-age=31536000, immutable" if rel.startswith("assets/") else "no-cache"
+                with open(full, "rb") as f:
+                    return self._send(200, STATIC_TYPES[ext], f.read(), cache=cache)
+
+            # A missing file (e.g. /missing.js) is a real 404. Anything else is a
+            # page route (/map, /about, old /map.html links) for React Router.
+            if ext and ext != ".html":
                 return self._send(404, "text/plain; charset=utf-8", b"Not found")
-            with open(full, "rb") as f:
-                body = f.read()
-            self._send(200, STATIC_TYPES[ext], body, cache="no-cache")
+            with open(index, "rb") as f:
+                self._send(200, STATIC_TYPES[".html"], f.read(), cache="no-cache")
 
         def _send(self, status, content_type, body, cors=False, cache=None):
             use_gzip = len(body) > 1024 and "gzip" in self.headers.get("Accept-Encoding", "")
             if use_gzip:
                 body = gzip.compress(body, compresslevel=5)
+            try:
+                self._write(status, content_type, body, use_gzip, cors, cache)
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                # The browser gave up on this request, e.g. the map cancelled
+                # an outdated /api/optimize call. Nothing left to send it to.
+                pass
+
+        def _write(self, status, content_type, body, use_gzip, cors, cache):
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -242,6 +302,7 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--raw", default=DEFAULT_RAW, help="path to the raw/ data folder")
+    parser.add_argument("--open", action="store_true", help="open the site in a browser once it's ready")
     args = parser.parse_args()
 
     if not os.path.isdir(args.raw):
@@ -255,8 +316,16 @@ def main():
     print("Computing distance from each tract to its nearest hospital ...", flush=True)
     optimizer = PlaceholderOptimizer(dataset)
 
-    server = ThreadingHTTPServer((args.host, args.port), make_handler(MedMapAPI(dataset, optimizer)))
-    print(f"MedMap running at http://{args.host}:{args.port}/  (Ctrl+C to stop)", flush=True)
+    if not os.path.isfile(os.path.join(DIST_ROOT, "index.html")):
+        print("  Note: web/dist is missing, so only the API works. Run `npm install` and "
+              "`npm run build` in web/ to build the site.", flush=True)
+
+    server = MedMapServer((args.host, args.port), make_handler(MedMapAPI(dataset, optimizer)))
+    browser_host = "127.0.0.1" if args.host in ("", "0.0.0.0", "::") else args.host
+    url = f"http://{browser_host}:{args.port}/"
+    print(f"MedMap running at {url}  (Ctrl+C to stop)", flush=True)
+    if args.open:
+        threading.Timer(0.5, webbrowser.open, [url]).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

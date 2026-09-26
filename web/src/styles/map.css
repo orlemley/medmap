@@ -1,17 +1,9 @@
 /* Map page: full-height map with a controls sidebar on the right. */
 
-.map-page {
-  height: 100vh;
-  height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .map-layout {
-  flex: 1;
   display: flex;
-  min-height: 0;
+  height: calc(100vh - var(--nav-height));
+  height: calc(100dvh - var(--nav-height));
 }
 
 .map-wrap {
@@ -20,9 +12,22 @@
   min-width: 0;
 }
 
-#map {
+/* Two classes so this beats maplibre-gl.css, which loads later and sets
+   .maplibregl-map { position: relative } on this same element. */
+.map-wrap .map-canvas {
   position: absolute;
   inset: 0;
+}
+
+.map-failure {
+  position: absolute;
+  inset: 20% 10% auto;
+  z-index: 3;
+  padding: 16px 20px;
+  color: var(--danger);
+  background: var(--surface);
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
 }
 
 .sidebar {
@@ -34,17 +39,67 @@
   border-left: 1px solid var(--border);
 }
 
-.sidebar-toggle {
+.sidebar-close {
   display: none;
-  margin-left: auto;
-  padding: 6px 12px;
+  margin: 0 0 10px auto;
+}
+
+/* Buttons that float over the map */
+.map-button {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 0.12);
   cursor: pointer;
+}
+
+.map-button:hover {
+  background: var(--surface-muted);
+}
+
+/* Heatmap switch in the top-right corner, like the sketch; sits left of the zoom buttons */
+.heatmap-button {
+  top: 10px;
+  right: 50px;
+}
+
+.heatmap-dot {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #fde68a, #f59e0b, #b45309);
+  border-radius: 50%;
+  opacity: 0.45;
+}
+
+.heatmap-button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: #bfdbfe;
+}
+
+.heatmap-button[aria-pressed="true"] .heatmap-dot {
+  opacity: 1;
+}
+
+.sidebar-toggle {
+  display: none;
+  top: 10px;
+  left: 10px;
+}
+
+.page-loading {
+  padding: 24px;
+  color: var(--text-muted);
 }
 
 /* --- Sidebar panels --- */
@@ -84,6 +139,12 @@
 
 .link-button:hover {
   text-decoration: underline;
+}
+
+.link-button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  text-decoration: none;
 }
 
 .field {
@@ -144,7 +205,7 @@ input[type="checkbox"] {
   margin-bottom: 10px;
 }
 
-.weight-help {
+.help {
   margin: -2px 0 0;
   font-size: 12px;
   color: var(--text-muted);
@@ -230,8 +291,8 @@ input[type="checkbox"] {
   list-style: none;
 }
 
-.results:empty::before {
-  content: "No results yet.";
+.empty {
+  margin: 0;
   font-size: 14px;
   color: var(--text-muted);
 }
@@ -287,12 +348,12 @@ input[type="checkbox"] {
   color: var(--text-muted);
 }
 
-/* --- Legend --- */
+/* --- Legend (bottom right, collapsible and closable, as on the sketch) --- */
 
 .legend {
   position: absolute;
-  left: 10px;
-  bottom: 30px;
+  right: 10px;
+  bottom: 40px;
   z-index: 2;
   width: 220px;
   font-size: 13px;
@@ -305,9 +366,14 @@ input[type="checkbox"] {
 .legend-header {
   display: flex;
   align-items: center;
+}
+
+.legend-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  width: 100%;
-  padding: 8px 12px;
+  padding: 8px 4px 8px 12px;
   font: inherit;
   font-weight: 700;
   color: var(--text);
@@ -316,21 +382,53 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
+.legend-close {
+  width: 30px;
+  height: 30px;
+  margin-right: 4px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.legend-close:hover {
+  color: var(--text);
+  background: var(--surface-muted);
+}
+
+.legend-reopen {
+  position: absolute;
+  right: 10px;
+  bottom: 40px;
+  z-index: 2;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 4px rgb(15 23 42 / 0.12);
+  cursor: pointer;
+}
+
 .chevron::after {
   content: "▾";
   color: var(--text-muted);
 }
 
-.legend-header[aria-expanded="false"] .chevron::after {
+.legend-title[aria-expanded="false"] .chevron::after {
   content: "▸";
 }
 
 .legend-body {
   padding: 0 12px 10px;
-}
-
-.legend-body[hidden] {
-  display: none;
 }
 
 .legend-row {
@@ -388,7 +486,7 @@ input[type="checkbox"] {
   background: linear-gradient(to right, var(--candidate-low), var(--candidate-high));
 }
 
-/* Matches the heatmap-color stops in js/map.js */
+/* Matches the heatmap-color stops in components/map/layers.js */
 .ramp-heatmap {
   background: linear-gradient(to right, #fef3c7, #fde68a, #fbbf24, #f59e0b, #b45309);
 }
@@ -499,7 +597,7 @@ input[type="checkbox"] {
 
 @media (max-width: 800px) {
   .sidebar-toggle {
-    display: block;
+    display: flex;
   }
 
   .sidebar {
@@ -516,8 +614,11 @@ input[type="checkbox"] {
     display: none;
   }
 
+  .sidebar-close {
+    display: block;
+  }
+
   .legend {
-    bottom: 36px;
     width: 190px;
   }
 }
