@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Optimal Hospital Placer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="panel">
+    <span class="badge">Healthcare Strategy Tool</span>
+
+    <h1 class="title">Optimal Hospital Placer</h1>
+    <p class="subtitle">
+      Plan smarter hospital placement using access, demand, and rural coverage data.
+    </p>
+    <p class="meta" id="meta">Ready to optimize care access across communities.</p>
+
+    <div class="metrics">
+      <button class="card" type="button" data-detail="Coverage zones: how far residents are from the nearest hospital.">
+        <span class="card-label">Access</span>
+        <span class="card-value">Coverage zones</span>
+      </button>
+      <button class="card" type="button" data-detail="Population needs: where demand for care is highest.">
+        <span class="card-label">Demand</span>
+        <span class="card-value">Population needs</span>
+      </button>
+      <button class="card" type="button" data-detail="Underserved areas: rural regions with limited existing care.">
+        <span class="card-label">Rural</span>
+        <span class="card-value">Underserved areas</span>
+      </button>
+    </div>
+
+    <div class="button-row">
+      <button class="start-button" id="start" type="button">Start</button>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

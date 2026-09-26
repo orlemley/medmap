@@ -1,0 +1,1 @@
+Take main.py and make a HTML, CSS, and JS equivalent for running in the browser. Make it interactable, but not flashy.
