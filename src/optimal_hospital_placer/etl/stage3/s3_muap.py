@@ -25,9 +25,13 @@ def load_designations(catalog, run, quality, provenance):
     frame['designation_id'] = frame.designation_id.astype('string').str.strip()
     if frame.designation_id.isna().any() or frame.designation_id.eq('').any():
         raise ValueError('Missing MUA/P designation ID')
-    # These IDs are attributes read as strings, never regenerated from integers.
-    if not frame.designation_id.str.fullmatch(r'\d{5}').all():
-        raise ValueError('Unexpected MUA/P ID representation; inspect DBF typing before linking')
+    # HRSA MUASRCID is a DBF character field. The source includes both five-
+    # and ten-digit IDs, also present verbatim in MUA_DET.csv. Preserve leading
+    # zeros and the full identifier; never pad, truncate, or cast to integers.
+    valid_ids = frame.designation_id.str.fullmatch(r'(?:[0-9]{5}|[0-9]{10})')
+    if not valid_ids.all():
+        examples = frame.loc[~valid_ids, 'designation_id'].drop_duplicates().head(5).tolist()
+        raise ValueError(f'Unexpected MUA/P IDs: {examples}; expected five- or ten-digit text identifiers')
     active = frame.designation_status.astype('string').str.strip().str.casefold().eq('designated')
     quality['muap_inactive_components_excluded'] = int((~active).sum())
     frame = frame.loc[active].copy()

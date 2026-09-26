@@ -5,6 +5,7 @@ import io
 import json
 import math
 import re
+import time
 from datetime import datetime, timezone
 
 import geopandas as gpd
@@ -13,6 +14,37 @@ import requests
 from shapely.geometry import Point
 
 from s3_common import STATES, read_json, save_json, save_table, text
+
+
+def request_geocode_batch(payload, benchmark, batch_number):
+    """Retry transient transport/service failures; keep each attempt identical."""
+    attempts = 5
+    retry_statuses = {408, 429, 500, 502, 503, 504}
+    for attempt in range(1, attempts + 1):
+        response = None
+        try:
+            response = requests.post(
+                'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
+                files={'addressFile': ('addresses.csv', payload, 'text/csv')},
+                data={'benchmark': benchmark}, timeout=(30, 600))
+            response.raise_for_status()
+            return response
+        except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
+            if isinstance(exc, requests.HTTPError) and (
+                    response is None or response.status_code not in retry_statuses):
+                if response is not None:
+                    response.close()
+                raise
+            if response is not None:
+                response.close()
+            if attempt == attempts:
+                print(f'Geocoding batch {batch_number} failed after {attempts} attempts. '
+                      'Completed batches remain cached.', flush=True)
+                raise
+            delay = 15 * (2 ** (attempt - 1))
+            print(f'Geocoding batch {batch_number}: attempt {attempt}/{attempts} failed '
+                  f'({exc}). Retrying the same batch in {delay} seconds.', flush=True)
+            time.sleep(delay)
 
 
 def normalized(value):
@@ -146,10 +178,8 @@ def geocode(frame, cache_dir, enabled):
             for key, address in batch:
                 writer.writerow([key, *address])
             print(f'Geocoding batch {start // 1000 + 1}: {len(batch)} addresses', flush=True)
-            response = requests.post('https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
-                                     files={'addressFile': ('addresses.csv', buffer.getvalue().encode('utf-8'), 'text/csv')},
-                                     data={'benchmark': benchmark}, timeout=(30, 600))
-            response.raise_for_status()
+            response = request_geocode_batch(buffer.getvalue().encode('utf-8'), benchmark,
+                                             start // 1000 + 1)
             returned = {}
             for values in csv.reader(io.StringIO(response.content.decode('utf-8-sig'))):
                 if len(values) < 3 or values[0] not in dict(batch) or values[0] in returned:
