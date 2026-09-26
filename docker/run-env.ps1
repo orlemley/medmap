@@ -1,5 +1,1 @@
-docker run --rm -it \
-  -p 5173:5173 \
-  -v "$(pwd)/web:/app" \
-  -v /app/node_modules \
-  node:20-slim
+docker run --rm -it -p 5173:5173 -p 8000:8000 -v ${PWD}\web:/app -v /app/app/node_modules my-combined-image
