@@ -1,8 +1,15 @@
 """MedMap server: the JSON API and the built React site on one port.
 
-    python web/api/server.py                 # http://127.0.0.1:8000
+    python web/api/server.py                 # http://127.0.0.1:8000, this computer only
     python web/api/server.py --open          # ...and open it in the browser
-    python web/api/server.py --port 9000 --raw path/to/raw
+    python web/api/server.py --host 0.0.0.0  # also reachable from other devices on the network
+    python web/api/server.py --raw path/to/raw   # use raw CSVs instead of the data bundle
+
+HOST and PORT environment variables set the defaults (hosting platforms and
+the Docker image use them). Data comes from web/api/medmap_data.json.gz
+unless --raw is given. Scoring uses placeholder_optimizer.py unless the
+OPTIMIZER_URL environment variable points at another service (see
+remote_optimizer.py), e.g. the real algorithm running in its own container.
 
 The site is the React build in web/dist (made by `npm run build` in web/).
 Page routes such as /map and /about all get dist/index.html, and React
@@ -22,6 +29,7 @@ import argparse
 import gzip
 import json
 import os
+import socket
 import sys
 import time
 import threading
@@ -36,12 +44,13 @@ API_DIR = os.path.dirname(os.path.realpath(__file__))
 if API_DIR not in sys.path:
     sys.path.insert(0, API_DIR)
 
-from data_loader import Dataset  # noqa: E402
+from data_loader import BUNDLE_PATH, Dataset, missing_raw_files  # noqa: E402
 from placeholder_optimizer import PlaceholderOptimizer  # noqa: E402
+from remote_optimizer import OptimizerRejected, RemoteOptimizer, UpstreamError  # noqa: E402
 
 WEB_ROOT = os.path.dirname(API_DIR)
 DIST_ROOT = os.path.join(WEB_ROOT, "dist")
-DEFAULT_RAW = os.path.join(os.path.dirname(WEB_ROOT), "raw")
+DEFAULT_RAW = os.path.join(os.path.dirname(WEB_ROOT), "raw")  # only if there's no bundle
 
 DEFAULT_WEIGHTS = {"population": 0.4, "distance": 0.3, "shortage": 0.2, "cost": 0.1}
 RADIUS_RANGE = (5, 100)  # miles
@@ -97,7 +106,10 @@ class MedMapAPI:
         return state
 
     def health(self, query):
-        return {"status": "ok", "engine": "placeholder", "stats": self.data.stats}
+        engine = getattr(self.optimizer, "name", "placeholder")
+        if isinstance(self.optimizer, RemoteOptimizer):
+            engine = f"remote ({self.optimizer.base_url})"
+        return {"status": "ok", "engine": engine, "stats": self.data.stats}
 
     def states(self, query):
         if "states" not in self._cache:
@@ -173,7 +185,10 @@ class MedMapAPI:
         include_hospitals = (query.get("include_hospitals") or ["1"])[0] not in ("0", "false")
 
         t0 = time.time()
-        candidates, meta = self.optimizer.get_top_placements(weights, radius=radius, k=k, state=state)
+        try:
+            candidates, meta = self.optimizer.get_top_placements(weights, radius=radius, k=k, state=state)
+        except OptimizerRejected as e:
+            raise BadRequest(str(e))
         meta["compute_ms"] = round((time.time() - t0) * 1000)
         response = {"candidates": candidates, "meta": meta}
         if include_hospitals:
@@ -202,6 +217,11 @@ def make_handler(api):
     class Handler(BaseHTTPRequestHandler):
         server_version = "MedMapDev/0.1"
 
+        def do_HEAD(self):
+            # Same as GET without the body; some uptime checkers use HEAD.
+            self._head_only = True
+            self.do_GET()
+
         def do_GET(self):
             url = urlparse(self.path)
             if url.path.startswith("/api/"):
@@ -228,6 +248,9 @@ def make_handler(api):
                 status, payload = 200, route(parse_qs(url.query))
             except BadRequest as e:
                 status, payload = 400, {"error": str(e)}
+            except UpstreamError as e:
+                print(f"  optimizer service error: {e}", file=sys.stderr, flush=True)
+                status, payload = 502, {"error": str(e)}
             except Exception:
                 traceback.print_exc()
                 status, payload = 500, {"error": "Internal server error; see the server console."}
@@ -289,7 +312,8 @@ def make_handler(api):
             if cors:
                 self._cors()
             self.end_headers()
-            self.wfile.write(body)
+            if not getattr(self, "_head_only", False):
+                self.wfile.write(body)
 
         def log_message(self, fmt, *args):
             sys.stderr.write("%s  %s\n" % (self.log_date_time_string(), fmt % args))
@@ -297,33 +321,85 @@ def make_handler(api):
     return Handler
 
 
+def lan_address():
+    """This machine's address on the local network, or None.
+
+    Connecting a UDP socket sends no packets; it only picks the interface
+    the OS would route through.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 80))  # TEST-NET-1: never actually contacted
+            ip = s.getsockname()[0]
+    except OSError:
+        return None
+    return None if ip.startswith("127.") else ip
+
+
+def load_dataset(raw):
+    """Raw CSVs if --raw was given, else the bundle, else <repo>/raw as a fallback."""
+    if raw:
+        missing = missing_raw_files(raw)
+        if missing:
+            sys.exit(f"Missing raw files in {raw}:\n  " + "\n  ".join(missing))
+        print(f"Loading raw CSVs from {raw} ...", flush=True)
+        return Dataset(raw)
+    if os.path.isfile(BUNDLE_PATH):
+        print(f"Loading {os.path.relpath(BUNDLE_PATH)} ...", flush=True)
+        return Dataset.from_bundle(BUNDLE_PATH)
+    if not missing_raw_files(DEFAULT_RAW):
+        print(f"No data bundle found; loading raw CSVs from {DEFAULT_RAW} ...", flush=True)
+        return Dataset(DEFAULT_RAW)
+    sys.exit(f"No data found. {BUNDLE_PATH} is missing (it's normally committed to the repo; "
+             "try `git pull`), and there's no raw/ folder to build it from.")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="MedMap dev server (API + static site)")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--raw", default=DEFAULT_RAW, help="path to the raw/ data folder")
+    parser = argparse.ArgumentParser(description="MedMap server (API + built site)")
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"),
+                        help="interface to listen on; 0.0.0.0 lets other devices connect (default: $HOST or 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")),
+                        help="port to listen on (default: $PORT or 8000)")
+    parser.add_argument("--raw", default=None, help="load raw CSVs from this folder instead of the data bundle")
     parser.add_argument("--open", action="store_true", help="open the site in a browser once it's ready")
     args = parser.parse_args()
 
-    if not os.path.isdir(args.raw):
-        sys.exit(f"Data folder not found: {args.raw}\n"
-                 "Download it with src/optimal_hospital_placer/etl/get_raw_data.ps1 or pass --raw.")
-
-    print(f"Loading data from {args.raw} ...", flush=True)
-    dataset = Dataset(args.raw)
+    dataset = load_dataset(args.raw)
     print(f"  {dataset.stats['tracts']} tracts, {dataset.stats['hospitals']} hospitals "
           f"({dataset.stats['load_seconds']}s)", flush=True)
     print("Computing distance from each tract to its nearest hospital ...", flush=True)
-    optimizer = PlaceholderOptimizer(dataset)
+    # Always built: it also computes each tract's distance to the nearest
+    # hospital, which the population heatmap uses.
+    placeholder = PlaceholderOptimizer(dataset)
+    optimizer_url = os.environ.get("OPTIMIZER_URL", "").strip()
+    optimizer = RemoteOptimizer(optimizer_url) if optimizer_url else placeholder
+    if optimizer_url:
+        print(f"Scoring is forwarded to {optimizer_url}/api/optimize (OPTIMIZER_URL).", flush=True)
 
     if not os.path.isfile(os.path.join(DIST_ROOT, "index.html")):
         print("  Note: web/dist is missing, so only the API works. Run `npm install` and "
               "`npm run build` in web/ to build the site.", flush=True)
 
     server = MedMapServer((args.host, args.port), make_handler(MedMapAPI(dataset, optimizer)))
-    browser_host = "127.0.0.1" if args.host in ("", "0.0.0.0", "::") else args.host
+    shared = args.host in ("", "0.0.0.0", "::")
+    browser_host = "127.0.0.1" if shared else args.host
     url = f"http://{browser_host}:{args.port}/"
-    print(f"MedMap running at {url}  (Ctrl+C to stop)", flush=True)
+    in_docker = os.path.exists("/.dockerenv") or os.environ.get("MEDMAP_IN_DOCKER")
+    if in_docker:
+        # The container's own address means nothing to the person reading this.
+        print(f"MedMap is listening on port {args.port} inside the container. Open "
+              "http://localhost:<published port>/ on this computer (8000 unless you changed "
+              "MEDMAP_PORT), or http://<this computer's IP>:<published port>/ from other devices.", flush=True)
+    else:
+        print(f"MedMap running at {url}  (Ctrl+C to stop)", flush=True)
+        if not shared:
+            print("  Only this computer can open it. To share it on your Wi-Fi, run web/share.cmd "
+                  "or add --host 0.0.0.0.", flush=True)
+        else:
+            ip = lan_address()
+            if ip:
+                print(f"  Other devices on the same network: http://{ip}:{args.port}/", flush=True)
+            print("  If Windows asks, allow Python through the firewall (Private networks).", flush=True)
     if args.open:
         threading.Timer(0.5, webbrowser.open, [url]).start()
     try:

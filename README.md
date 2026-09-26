@@ -17,6 +17,9 @@ results on an interactive map where you set how much each factor matters.
 ## Contents
 
 - [Quick start](#quick-start)
+- [Sharing the demo with other people](#sharing-the-demo-with-other-people)
+- [Running with Docker](#running-with-docker)
+- [Updating the data](#updating-the-data)
 - [What's in `web/`](#whats-in-web)
 - [Working on the frontend](#working-on-the-frontend)
 - [Using the map](#using-the-map)
@@ -32,57 +35,206 @@ results on an interactive map where you set how much each factor matters.
 
 ## Quick start
 
-**Requirements to run the demo:** Python 3.8 or newer. No packages to install:
-the server uses only the standard library, and the built React site
-(`web/dist/`) is committed, so **Node.js is not needed just to run it**. The
-browser needs an internet connection for the map tiles.
+Everything needed to run the demo is in the repo: the built React site
+(`web/dist/`) and a 1.6 MB data file (`web/api/medmap_data.json.gz`). **No data
+download and no Node.js needed.** Pick one:
 
-Node.js 22.12+ is only needed if you want to **change the frontend** (see
-[Working on the frontend](#working-on-the-frontend)).
+**A. With Python** (3.8 or newer; nothing to `pip install`)
 
-1. **Get the data.** The server reads the raw CSVs from `raw/` in the repo root.
-   `raw/` is git-ignored, so each person downloads it themselves. On Windows:
+- Windows: double-click **`web/start.cmd`**. It starts the server and opens
+  the site in your browser.
+- Any OS, from the repo root:
 
-   ```powershell
-   ./src/optimal_hospital_placer/etl/get_raw_data.ps1 -Sources CMSHospital,PLACES,HPSA,MUAP,RUCA
-   ```
+  ```bash
+  python web/api/server.py --open      # use python3 on macOS/Linux if needed
+  ```
 
-   Those five sources are the only ones the map needs. See
-   `src/optimal_hospital_placer/etl/get_raw_data.README.md` for the other options.
+**B. With Docker** (no Python or Node needed; see [Running with Docker](#running-with-docker))
 
-2. **Start MedMap.** On Windows, double-click **`web/start.cmd`**. It finds
-   Python, starts the server, and opens the site in your browser once the data
-   has loaded (about 10–20 seconds). Close its window to stop the server.
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
 
-   Or from a terminal in the repo root (any OS):
-
-   ```bash
-   python web/api/server.py --open
-   ```
-
-   On macOS/Linux use `python3` if `python` isn't found. It prints:
-
-   ```
-   MedMap running at http://127.0.0.1:8000/  (Ctrl+C to stop)
-   ```
-
-3. The browser opens **<http://127.0.0.1:8000/>** (without `--open`, open it
-   yourself). The map is at <http://127.0.0.1:8000/map>.
-
-Options:
-
-| Flag | Default | Meaning |
-|---|---|---|
-| `--port` | `8000` | Port for both the API and the site |
-| `--host` | `127.0.0.1` | Use `0.0.0.0` to let other devices on your network connect (for example, to demo from a phone) |
-| `--raw` | `<repo>/raw` | Path to the data folder, if it lives somewhere else |
-| `--open` | off | Open the site in the default browser once the server is ready |
+Either way the site is at **<http://localhost:8000/>** (the same as
+`http://127.0.0.1:8000/`), and the map is at `/map`. It starts in a few
+seconds. The browser needs internet access for the map tiles.
 
 > **Don't open the HTML files directly** (double-clicking them, or
 > `start chrome ./index.html`). Browsers won't run the app from a `file://`
-> page, and the map needs the server for its data. That's why the map was
-> blank before. If you do open one that way, the page now tells you how to
-> start MedMap properly.
+> page, and the map needs the server for its data. If you do, the page tells
+> you what to run instead.
+
+Server options:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--host` | `$HOST` or `127.0.0.1` | `127.0.0.1` = only this computer. `0.0.0.0` = other devices on the network can connect too. |
+| `--port` | `$PORT` or `8000` | Port for both the API and the site |
+| `--open` | off | Open the site in the default browser once the server is ready |
+| `--raw PATH` | off | Load the raw CSVs from `PATH` instead of the data file (see [Updating the data](#updating-the-data)) |
+
+Environment variables: `MEDMAP_CACHE_SIZE` (default 16) caps how many radius
+and state score tables are kept in memory. Each nationwide table is about
+40 MB, and the base server uses about 95 MB. `OPTIMIZER_URL` sends scoring to
+another service (see [Plugging in the real algorithm](#plugging-in-the-real-algorithm)).
+
+---
+
+## Sharing the demo with other people
+
+**`127.0.0.1` (and `localhost`) always means "this same device."** If a
+teammate types `http://127.0.0.1:8000` on their laptop, it looks for a server
+on *their* laptop, not yours. There are three ways to let other people use
+MedMap:
+
+| Option | Who it's for | What they need | Your laptop must stay on? |
+|---|---|---|---|
+| **1. Same Wi-Fi**: they open your laptop's address | Teammates and judges in the room | Just a browser | Yes |
+| **2. They run it themselves**: Python or Docker | Teammates, judges who want to run it | Python or Docker | No |
+| **3. Temporary public link**: a free tunnel | Anyone, on any network | Just a browser | Yes |
+
+### 1. Same Wi-Fi
+
+On your laptop, double-click **`web/share.cmd`** (or run
+`python web/api/server.py --host 0.0.0.0`). It prints something like:
+
+```
+MedMap running at http://127.0.0.1:8000/  (Ctrl+C to stop)
+  Other devices on the same network: http://192.168.1.23:8000/
+```
+
+Give people the second address. If Windows asks, **allow Python through the
+firewall**. Tick *Public networks* too if the venue Wi-Fi is marked public.
+The Docker setup works the same way: its `8000:8000` port mapping is
+reachable at `http://<your IP>:8000` too.
+
+This won't work on networks that block device-to-device traffic, which many
+venue, hotel and campus Wi-Fi networks do. In that case, use option 3.
+
+### 2. They run it themselves
+
+Teammates clone the repo and use the [Quick start](#quick-start): Python
+(`web/start.cmd`) or [Docker](#running-with-docker). Nobody needs `raw/` or
+Node.js.
+
+### 3. Temporary public link (free, no account)
+
+Install Cloudflare's tunnel tool once
+(`winget install --id Cloudflare.cloudflared`), start MedMap (Python or
+Docker), then run:
+
+```bash
+cloudflared tunnel --url http://localhost:8000
+```
+
+It prints a public `https://<random-words>.trycloudflare.com` link that works
+from any device, on any network, until you press Ctrl+C. The link changes
+each time.
+
+---
+
+## Running with Docker
+
+Docker runs the whole demo with nothing else installed: no Python, no Node,
+no data download. Tested with Docker Desktop 29.8 on Windows.
+
+```bash
+docker compose -f docker/docker-compose.yml up --build     # http://localhost:8000
+docker compose -f docker/docker-compose.yml down           # stop and remove
+```
+
+Run these from the repo root. On Windows, `./docker/run-env.ps1` does the
+same (`-Dev` adds the dev server described below; `-Down` stops everything).
+The first build downloads the base images and takes about a minute; after that
+it takes seconds. The container is ready (and marked *healthy*) about 8
+seconds after it starts.
+
+### What's in the image
+
+`docker/Dockerfile` builds one self-contained image (~180 MB):
+
+1. **Stage 1** (Node 24) runs `npm ci` and `npm run build` to build the React
+   site from `web/src`.
+2. **Stage 2** (Python 3.13 slim) copies `web/api/*.py`, the data file and
+   the built site. It runs `server.py` as a non-root user, with a health check
+   on `/api/health`.
+
+It uses about 250 MB of RAM. The build context is the repo root, and
+`.dockerignore` keeps `raw/`, `node_modules`, `.git` and so on out of it.
+Without compose:
+
+```bash
+docker build -f docker/Dockerfile -t medmap .
+docker run --rm -p 8000:8000 medmap
+```
+
+### Settings
+
+Copy `docker/.env.example` to `docker/.env` and change what you need.
+`docker/.env` is git-ignored, and every setting has a default:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MEDMAP_PORT` | `8000` | Port on your computer for the site and API |
+| `WEB_DEV_PORT` | `5173` | Port for the hot-reload dev server |
+| `MEDMAP_CACHE_SIZE` | `6` | Score tables kept in memory (~40 MB each) |
+| `OPTIMIZER_URL` | empty | Where to get scores from; empty = built-in placeholder (see below) |
+
+### Editing the frontend without installing Node
+
+```bash
+docker compose -f docker/docker-compose.yml --profile dev up --build
+```
+
+This also runs the Vite dev server in a Node container at
+**<http://localhost:5173/>**. `web/` is mounted from your computer, so saving
+a file updates the page in under a second, and `/api` is forwarded to the
+`medmap` container. When you're done, stop it and rebuild the committed site so
+`web/dist/` is current for Python users:
+
+```bash
+docker compose -f docker/docker-compose.yml --profile dev stop web-dev
+docker compose -f docker/docker-compose.yml --profile dev run --rm --no-deps web-dev sh -c "npm ci && npm run build"
+```
+
+### Adding more services later
+
+The setup is built to grow without changing the website:
+
+- **The real algorithm.** Give `/algorithm` its own Dockerfile and an API
+  that answers `GET /api/optimize` like the placeholder does (same query
+  parameters and response shape; see [API reference](#api-reference)).
+  Uncomment the `algorithm` service template at the bottom of
+  `docker/docker-compose.yml`, and set `OPTIMIZER_URL=http://algorithm:8000`
+  in `docker/.env`. The `medmap` container then forwards every scoring request
+  to it (`web/api/remote_optimizer.py`), while still serving the site,
+  hospitals and heatmap data. If the algorithm container is down, the site
+  stays up and the status line shows a clear error (HTTP 502). This was tested
+  with a stand-in algorithm container.
+- **Other services** (a database, a job that rebuilds the data): add them as
+  services in the same file. Containers reach each other by service name
+  (`http://medmap:8000`, `http://algorithm:8000`).
+- **Deploying later.** The image runs anywhere that runs containers.
+  It reads `PORT` and `HOST` from the environment, which is how most hosts
+  configure containers. Build it from `docker/Dockerfile` with the repo root
+  as context. Nothing in it depends on this computer.
+
+---
+
+## Updating the data
+
+The server reads `web/api/medmap_data.json.gz`, which holds the joined tables
+built from the raw CSVs. It gives the same results as loading the CSVs
+directly (checked on every endpoint) and loads in 0.2 s instead of 10–20 s.
+To rebuild it after downloading newer raw data (Windows):
+
+```powershell
+./src/optimal_hospital_placer/etl/get_raw_data.ps1 -Sources CMSHospital,PLACES,HPSA,MUAP,RUCA
+python web/api/build_data.py          # reads raw/, writes web/api/medmap_data.json.gz
+```
+
+Then commit the updated `medmap_data.json.gz`. To run straight from the CSVs
+instead, use `python web/api/server.py --raw raw`.
 
 ---
 
@@ -93,7 +245,8 @@ serves the built copy in `web/dist/` and the JSON API on the same port.
 
 ```
 web/
-├── start.cmd                 Windows: double-click to start MedMap
+├── start.cmd                 Windows: double-click to start MedMap (this computer only)
+├── share.cmd                 Windows: same, but other devices on your Wi-Fi can open it
 ├── index.html                Vite entry page (loads src/main.jsx)
 ├── package.json              npm scripts: dev, build, preview, api
 ├── vite.config.js            Dev server on 5173, forwards /api to Python on 8000
@@ -123,9 +276,16 @@ web/
 │   └── styles/               site.css, map.css
 └── api/
     ├── server.py             JSON API + serves web/dist on one port
-    ├── data_loader.py        Reads raw CSVs into memory and joins them
-    └── placeholder_optimizer.py   Stand-in scoring until /algorithm exists
+    ├── data_loader.py        Joins the raw CSVs; saves/loads the data bundle
+    ├── medmap_data.json.gz   The joined data (1.6 MB, committed); used by default
+    ├── build_data.py         Rebuilds medmap_data.json.gz from raw/
+    ├── placeholder_optimizer.py   Stand-in scoring until /algorithm exists
+    └── remote_optimizer.py   Forwards scoring to another service when OPTIMIZER_URL is set
 ```
+
+Docker files live outside `web/`: `docker/Dockerfile`,
+`docker/docker-compose.yml`, `docker/.env.example`, `docker/run-env.ps1` and
+`.dockerignore`.
 
 **How React and the map connect:** `MapPage` holds all the state (weights,
 radius, layers, the open popup, and so on) and passes it as props to
@@ -480,8 +640,11 @@ current `raw/` snapshot.
   and no measure of existing hospitals' load. "Lifting burden off existing
   hospitals" is only approximated by covering people who are far from any.
 - **Tract-centroid population:** big rural tracts are treated as one point.
-- Data is loaded into memory at startup (about 10–15 s). Nothing is cached to
-  disk.
+- The committed data file is a snapshot. If the raw sources are
+  re-downloaded, someone has to run `build_data.py` and commit the result
+  (see [Updating the data](#updating-the-data)).
+- Score tables are cached in memory only, so each server restart recomputes
+  them on first use (a few seconds per new radius nationwide).
 - Browsers need **WebGL2** (MapLibre 6 requirement), which all current
   browsers support.
 - In the browser console, the OpenFreeMap basemap logs two harmless warnings
@@ -493,8 +656,16 @@ current `raw/` snapshot.
 ## Plugging in the real algorithm
 
 The frontend depends only on the HTTP contract above. When `/algorithm` is
-ready, either:
+ready, pick one:
 
+- **Run it as its own service (recommended):** give it an API that answers
+  `GET /api/optimize` with the same parameters and response, and set
+  `OPTIMIZER_URL` to its address. `web/api/remote_optimizer.py` then forwards
+  scoring to it, and this server keeps serving the site and the other
+  endpoints. With Docker, it's a compose change; see
+  [Adding more services later](#adding-more-services-later). Without Docker,
+  run it on another port and start this server with, for example,
+  `OPTIMIZER_URL=http://127.0.0.1:8001 python web/api/server.py`.
 - **Replace the engine inside this server:** in `web/api/server.py`, build the
   algorithm's optimizer instead of `PlaceholderOptimizer`. It needs a
   `get_top_placements(weights, radius=, k=, state=)` method that returns
@@ -504,10 +675,8 @@ ready, either:
   `uncovered_population`, `avg_distance_reduction_mi`, `nearest_hospital_mi`,
   `in_mua`, `in_hpsa`, `density_per_sq_mi`, `density_imputed`,
   `tract_population`, `tract_id`, `county` and `state`. Or:
-- **Run the algorithm's own API** and build the frontend with
-  `VITE_API_BASE` pointing at it (see [Working on the frontend](#working-on-the-frontend)).
-  It must also provide `/api/states` and `/api/hospitals` (and
-  `/api/population` for the heatmap) in the same shapes.
+In both cases the popup reads the same properties, so returned features need
+all of the ones listed above.
 
 ---
 
@@ -515,11 +684,16 @@ ready, either:
 
 | Symptom | Fix |
 |---|---|
-| `Data folder not found` when starting | Download the data (step 1) or pass `--raw path/to/raw`. |
-| `KeyError` or `FileNotFoundError` naming a CSV | One of the five required sources is missing. Re-run the download for `CMSHospital,PLACES,HPSA,MUAP,RUCA`. |
+| `Missing raw files in ...` | Only with `--raw` or `build_data.py`: download the five sources listed in [Updating the data](#updating-the-data). |
 | Page says "Open MedMap through its server" | You opened `index.html` as a file. Double-click `web/start.cmd` or run `python web/api/server.py --open`. |
 | Map shows "Can't reach the MedMap API" | The server isn't running, or (in `npm run dev`) it isn't on port 8000. Start `python web/api/server.py`. |
 | Page says "The MedMap site hasn't been built" | `web/dist/` is missing. Run `npm install` and `npm run build` in `web/`. |
+| A teammate opens `http://127.0.0.1:8000` and gets nothing | That address means *their own* computer. Give them your Wi-Fi address from `share.cmd`, or a public link. See [Sharing the demo](#sharing-the-demo-with-other-people). |
+| Other devices can't open the `http://192.168...:8000` link | Allow Python (or Docker) through the Windows firewall, and make sure you started with `share.cmd` / `--host 0.0.0.0`. Some venue Wi-Fi networks block device-to-device traffic. Use the tunnel option instead. |
+| `No data found ... medmap_data.json.gz is missing` | Run `git pull`; the file is committed. Or rebuild it (see [Updating the data](#updating-the-data)). |
+| Docker: `port is already allocated` | Something else (maybe `start.cmd`) is using port 8000. Stop it, or set `MEDMAP_PORT=8001` in `docker/.env`. |
+| `docker: command not found` right after installing Docker Desktop | Close and reopen the terminal (or VS Code) so it picks up Docker's new PATH, and make sure Docker Desktop is running. |
+| Docker site says `Can't reach the optimizer service` | `OPTIMIZER_URL` is set but that service isn't running. Start it, or clear `OPTIMIZER_URL` in `docker/.env` to use the placeholder. |
 | `start.cmd` says Python isn't installed | Install Python 3 from python.org (tick "Add python.exe to PATH") or run `winget install Python.Python.3.12`. |
 | Changes in `web/src/` don't show up at :8000 | The server shows the built copy. Run `npm run build` in `web/`, or use `npm run dev` while editing. |
 | Map area is blank but the sidebar works | Your browser lacks WebGL2 (MapLibre 6 requires it); the map area says so. Use a current Chrome, Edge, Firefox or Safari. |
