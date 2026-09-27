@@ -16,6 +16,10 @@ docker/*.ps1
 # The runtime image installs the API from this file. Keep the broad text-file
 # exclusion for generated notes, but allow this required build input.
 !src/optimal_hospital_placer/api/requirements.txt
+!src/optimal_hospital_placer/etl/**/requirements.txt
+# Mounted at run time, never copied into an image.
+data
+addresses
 *.svg
 **/.env
 
