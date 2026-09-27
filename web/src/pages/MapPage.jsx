@@ -60,6 +60,19 @@ function ApiHelp({ error }) {
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
 
+/** True while the CSS media query matches; updates when the window crosses it. */
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener("change", update);
+    return () => list.removeEventListener("change", update);
+  }, [query]);
+  return matches;
+}
+
 // Map style (satellite or street map), heatmap on/off and whether the
 // recommended sites follow the map, remembered per browser. First-time
 // visitors get satellite photos, the heatmap, and sites that follow the map.
@@ -217,6 +230,22 @@ export default function MapPage() {
     ? { bounds: [[regionInfo.bbox[0], regionInfo.bbox[1]], [regionInfo.bbox[2], regionInfo.bbox[3]]], padding: 40, maxZoom: 9, label: STATE_NAMES[region] || region }
     : { bounds: US_BOUNDS, padding: 20, label: "the U.S." }, [regionInfo, region]);
 
+  // How much of the map's left side the open sites panel and the legend (both
+  // in the left column on wider screens) hide, so the starting view and
+  // flying to a site use the visible part. 0 on phones (the panel folds away
+  // after a pick) or when too little map would be left.
+  const topLeft = useRef(null);
+  const wide = useMediaQuery("(min-width: 801px)");
+  const coveredLeft = () => {
+    const wrap = topLeft.current?.parentElement;
+    if (!wrap || isPhone()) return 0;
+    const overlays = [...topLeft.current.querySelectorAll(".sites-panel.open, .legend")]
+      .filter((el) => !el.classList.contains("legend") || el.querySelector(".legend-body"));
+    if (!overlays.length) return 0;
+    const covered = Math.max(...overlays.map((el) => el.getBoundingClientRect().right)) - wrap.getBoundingClientRect().left;
+    return wrap.clientWidth - covered >= 360 ? covered : 0;
+  };
+
   const nextKey = () => ++popupCounter.current;
   const showHospitals = (list, lngLat) => setPopup({ key: nextKey(), kind: "hospitals", source: "hospitals", ids: list.map((h) => h.id), hospitals: list, lngLat });
   const showCandidate = (id, fly) => {
@@ -257,7 +286,7 @@ export default function MapPage() {
       <div className="map-wrap">
         <MedMap ref={mapApi} hospitals={hospitals} population={population} candidates={optimize.candidates}
           ringRadius={0} radius={30} layers={layers} heatmapMode={heatmapMode} hospitalTypes={visibleTypes}
-          homeView={homeView} theme={theme} basemap={basemap} selected={selected} hoveredCandidate={hoveredCandidate}
+          homeView={homeView} coveredLeft={coveredLeft} theme={theme} basemap={basemap} selected={selected} hoveredCandidate={hoveredCandidate}
           popup={popupView} onViewportChange={setViewport} onHospitalsClick={showHospitals}
           onCandidateClick={(id) => showCandidate(id, false)} onCandidateHover={setHoveredCandidate}
           onPopupClose={(key) => setPopup((p) => p?.key === key ? null : p)} />
@@ -267,8 +296,10 @@ export default function MapPage() {
           </div>
           <button className="map-button heatmap-button" type="button" aria-pressed={layers.heatmap} onClick={() => toggleLayer("heatmap")}><span className="heatmap-dot" aria-hidden="true" /> Heatmap</button>
         </div>
-        {/* Top-left: the phone-only Controls button, then the recommended sites */}
-        <div className="map-topleft">
+        {/* Left: the phone-only Controls button, then the recommended sites.
+            On wider screens the legend sits at the bottom of this column, where
+            it doesn't cover the U.S.; on phones it stays bottom-right. */}
+        <div className="map-topleft" ref={topLeft}>
           <button
             className="map-button sidebar-toggle"
             id="sidebar-toggle"
@@ -290,8 +321,9 @@ export default function MapPage() {
             onFollowMap={setFollowMap}
             scope={scope}
           />
+          {wide && <Legend heatmapMode={heatmapMode} basemap={basemap} />}
         </div>
-        <Legend heatmapMode={heatmapMode} basemap={basemap} />
+        {!wide && <Legend heatmapMode={heatmapMode} basemap={basemap} />}
       </div>
 
       <aside className={sidebarOpen ? "sidebar" : "sidebar closed"} id="sidebar" aria-label="Controls">

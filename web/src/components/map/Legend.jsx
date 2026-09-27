@@ -1,8 +1,13 @@
 import { useState } from "react";
 
-/** Bottom-right legend, as on the whiteboard sketch: collapsible and closable. */
+/**
+ * Map legend: collapsible and closable. Bottom-left under the recommended
+ * sites on wider screens, bottom-right on phones (MapPage decides). Starts
+ * collapsed on phones and short screens (e.g. 1366x768 laptops), where the
+ * open legend would squeeze the recommended sites list.
+ */
 export default function Legend({ heatmapMode, basemap }) {
-  const startCollapsed = typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches;
+  const startCollapsed = typeof window !== "undefined" && window.matchMedia("(max-width: 800px), (max-height: 760px)").matches;
   const [expanded, setExpanded] = useState(!startCollapsed);
   const [closed, setClosed] = useState(false);
 

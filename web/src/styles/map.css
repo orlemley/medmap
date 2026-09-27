@@ -1057,6 +1057,40 @@ input[type="checkbox"] {
   }
 }
 
+/* Wider screens: the left side is one column, recommended sites on top and
+   the legend at the bottom (above the scale bar). The map fits the U.S. to
+   the right of it (coveredLeft in MapPage). The list shrinks and scrolls so
+   the two never overlap, and the empty gap between them passes clicks
+   through to the map. */
+@media (min-width: 801px) {
+  .map-topleft {
+    bottom: 36px;
+    flex-direction: column;
+    pointer-events: none;
+  }
+
+  .map-topleft > * {
+    pointer-events: auto;
+  }
+
+  .map-topleft .sites-panel {
+    flex: 0 1 auto;
+    min-height: 0;
+  }
+
+  .map-topleft .sites-body {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .map-topleft .legend,
+  .map-topleft .legend-reopen {
+    position: static;
+    flex: none;
+    margin-top: auto;
+  }
+}
+
 /* Phones: the map credit line wraps to two lines, so lift the legend above it. */
 @media (max-width: 500px) {
   .legend,
