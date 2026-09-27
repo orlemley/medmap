@@ -11,10 +11,14 @@ import { LAYER_GROUPS, addSourcesAndLayers, applyThemedPaint, heatmapIntensity, 
 
 maplibregl.setWorkerUrl(workerUrl);
 
-/** Fit the home bounds, facing north with no tilt. */
-function flyHome(map, home) {
+/** Padding that also keeps `coveredLeft` pixels (under the sites panel) clear. */
+const homePadding = (padding, coveredLeft) =>
+  ({ top: padding, right: padding, bottom: padding, left: padding + coveredLeft });
+
+/** Fit the home bounds in the uncovered part of the map, facing north with no tilt. */
+function flyHome(map, home, coveredLeft = 0) {
   if (!home) return;
-  const options = { padding: home.padding ?? 20, bearing: 0, pitch: 0 };
+  const options = { padding: homePadding(home.padding ?? 20, coveredLeft), bearing: 0, pitch: 0 };
   // Only pass maxZoom when there is one: an explicit `undefined` overrides
   // MapLibre's default and turns the computed zoom into NaN.
   if (home.maxZoom !== undefined) options.maxZoom = home.maxZoom;
@@ -107,6 +111,8 @@ function useFeatureStateFlag(mapRef, loaded, key, target) {
  * `homeView` ({ bounds, padding, maxZoom, label }) is the "starting view":
  * the map flies there whenever it changes (e.g. a new state is picked), and
  * the Reset view button returns there, facing north with no tilt.
+ * `coveredLeft()` returns how many pixels on the left are hidden behind an
+ * overlay; the starting view and `focusOn` keep to the part that's visible.
  *
  * `theme` ("light" | "dark") picks the basemap style; `basemap`
  * ("streets" | "satellite") shows or hides the satellite photos on top of it.
@@ -125,6 +131,7 @@ export default function MedMap({
   heatmapMode,
   hospitalTypes,
   homeView,
+  coveredLeft = () => 0,
   theme = "light",
   basemap = "streets",
   selected,
@@ -145,7 +152,7 @@ export default function MedMap({
   const latest = useRef({});
   useLayoutEffect(() => {
     latest.current = {
-      radius, heatmapMode, homeView, theme, basemap,
+      radius, heatmapMode, homeView, coveredLeft, theme, basemap,
       onHospitalsClick, onCandidateClick, onCandidateHover, onPopupClose, onViewportChange,
     };
   });
@@ -160,7 +167,7 @@ export default function MedMap({
       map = new maplibregl.Map({
         container: containerRef.current,
         bounds: US_BOUNDS,
-        fitBoundsOptions: { padding: 20 },
+        fitBoundsOptions: { padding: homePadding(20, latest.current.coveredLeft()) },
         attributionControl: { compact: true },
       });
     } catch (err) {
@@ -177,7 +184,7 @@ export default function MedMap({
     map.setStyle(BASEMAP_STYLES[styleTheme.current], { transformStyle: withoutBasemapBorders });
     // The compass shows when the map is rotated or tilted; clicking it points north again.
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-    resetControl.current = new ResetViewControl(() => flyHome(map, latest.current.homeView));
+    resetControl.current = new ResetViewControl(() => flyHome(map, latest.current.homeView, latest.current.coveredLeft()));
     map.addControl(resetControl.current, "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
 
@@ -262,15 +269,16 @@ export default function MedMap({
 
   // Go to the starting view whenever it changes, e.g. when a state is picked.
   useEffect(() => {
-    if (mapRef.current && homeView) flyHome(mapRef.current, homeView);
+    if (mapRef.current && homeView) flyHome(mapRef.current, homeView, latest.current.coveredLeft());
     resetControl.current?.setLabel(homeView?.label ?? "the starting view");
   }, [homeView]);
 
   useImperativeHandle(ref, () => ({
-    /** Fly to a point, leaving room above it for its popup. */
+    /** Fly to a point, centred in the visible part of the map, leaving room above it for its popup. */
     focusOn: (center) => {
       const map = mapRef.current;
-      if (map) map.flyTo({ center, zoom: Math.max(map.getZoom(), 7.5), offset: [0, 160], essential: true });
+      const offset = [latest.current.coveredLeft() / 2, 160];
+      if (map) map.flyTo({ center, zoom: Math.max(map.getZoom(), 7.5), offset, essential: true });
     },
   }), []);
 
