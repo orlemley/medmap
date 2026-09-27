@@ -14,6 +14,16 @@ matter most.
 *Our first whiteboard sketch: public data goes into a ranking algorithm, and
 the best placements are shown on a MapLibre map.*
 
+## Contents
+
+- [Why it matters](#why-it-matters)
+- [Who it's for](#who-its-for)
+- [What makes it interesting](#what-makes-it-interesting)
+- [How it works](#how-it-works)
+- [Installation](#installation)
+  - [A. Run with Docker](#a-run-with-docker)
+  - [B. Share a public link with a Cloudflare tunnel](#b-share-a-public-link-with-a-cloudflare-tunnel)
+
 ## Why it matters
 
 Many Americans, especially in rural areas, live a long drive from the nearest
@@ -147,7 +157,9 @@ marks its strongest sites for exact road routing as a future step.
 For local development and other deployment options, see
 [DEPLOYMENT.md](DEPLOYMENT.md).
 
-## A. Run with Docker
+## Installation
+
+### A. Run with Docker
 
 From the repo root:
 
@@ -158,7 +170,7 @@ docker compose -f docker/docker-compose.yml down         # stop and remove the c
 
 The site is at **<http://localhost:8000/>**. The map is at `/map`.
 
-## B. Share a public link with a Cloudflare tunnel
+### B. Share a public link with a Cloudflare tunnel
 
 While MedMap is running on port 8000, run these in a second terminal:
 
