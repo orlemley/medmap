@@ -152,7 +152,7 @@ export default function MedMap({
   const latest = useRef({});
   useLayoutEffect(() => {
     latest.current = {
-      radius, heatmapMode, homeView, coveredLeft, theme, basemap,
+      radius, heatmapMode, homeView, coveredLeft, theme, basemap, candidates, layers,
       onHospitalsClick, onCandidateClick, onCandidateHover, onPopupClose, onViewportChange,
     };
   });
@@ -201,6 +201,20 @@ export default function MedMap({
       const layers = ["candidate-labels", "candidates"].filter((id) => map.getLayer(id));
       return layers.length ? map.queryRenderedFeatures(point, { layers }) : [];
     };
+    const candidateNearest = (point) => {
+      if (!latest.current.layers?.candidates) return null;
+      let nearest = null;
+      let nearestDistance = 22;
+      for (const feature of latest.current.candidates?.features ?? []) {
+        const projected = map.project(feature.geometry.coordinates);
+        const distance = Math.hypot(projected.x - point.x, projected.y - point.y);
+        if (distance <= nearestDistance) {
+          nearest = feature;
+          nearestDistance = distance;
+        }
+      }
+      return nearest;
+    };
     let hoveredHospital = null;
     const setHospitalHover = (id) => {
       if (hoveredHospital === id) return;
@@ -231,16 +245,17 @@ export default function MedMap({
         });
       }
       map.on("click", "hospitals", (e) => {
-        if (candidatesAt(e.point).length) return;
+        if (candidateNearest(e.point)) return;
         const features = uniqueById(e.features);
         latest.current.onHospitalsClick(features.map((f) => ({ id: f.id, ...f.properties })), features[0].geometry.coordinates);
       });
     };
 
-    // A symbol label is rendered above its circle and can receive the physical
-    // click, so query both layers at the point rather than using layer events.
+    // Rendered-feature ordering is not a hit-test guarantee: overlapping
+    // circles and their labels can put an unrelated feature first. Select the
+    // candidate whose actual marker centre is nearest to the physical click.
     map.on("click", (e) => {
-      const id = candidateId(candidatesAt(e.point)[0]);
+      const id = candidateId(candidateNearest(e.point));
       if (id !== null) latest.current.onCandidateClick(id);
     });
 
