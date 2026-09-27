@@ -210,6 +210,32 @@
   padding-top: 4px;
 }
 
+/* "Update as I move the map" and what the list covers */
+.sites-options {
+  padding: 6px 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sites-follow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(13px * var(--text-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sites-follow input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.sites-scope {
+  margin: 2px 0 0 calc(13px + 6px);
+  font-size: calc(12px * var(--text-scale, 1));
+  color: var(--text-muted);
+}
+
 /* Dim the list while new results are being scored */
 .sites-panel[aria-busy="true"] .results {
   opacity: 0.55;
@@ -398,6 +424,41 @@ input[type="checkbox"] {
 
 .weights-intro {
   margin: 0 0 10px;
+}
+
+/* Preset buttons above the weight sliders; the active one is highlighted */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: calc(13px * var(--text-scale, 1));
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.preset:hover {
+  background: var(--surface-muted);
+}
+
+.preset[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.preset-note {
+  margin: 6px 0 12px;
+  font-size: calc(13px * var(--text-scale, 1));
+  color: var(--text-muted);
 }
 
 .check {

@@ -45,7 +45,27 @@ export const WEIGHTS = [
   },
 ];
 
-export const RESULTS = { min: 1, max: 500, default: 75 };
+// Ready-made weight mixes (percent of the score; each adds up to 100).
+// Every preset changes at least a third of the national top 30.
+// A "bed shortage" preset was left out on purpose: the top sites all have no
+// hospital beds within 30 minutes, so weighting it more changes nothing.
+const preset = (access, drive_access, capacity, vulnerability, service_fit, configuration_fit, cost_efficiency) =>
+  Object.fromEntries(Object.entries({ access, drive_access, capacity, vulnerability, service_fit, configuration_fit, cost_efficiency })
+    .map(([key, percent]) => [key, percent / 100]));
+export const PRESETS = [
+  { id: "balanced", label: "Balanced", weights: DEFAULT_WEIGHTS,
+    description: "The model's default mix of all seven factors." },
+  { id: "people", label: "Most people", weights: preset(40, 12, 16, 8, 10, 8, 6),
+    description: "Favors sites that would cut drive times for the most people." },
+  { id: "remote", label: "Remote areas", weights: preset(14, 40, 14, 10, 8, 8, 6),
+    description: "Favors places that are far from any hospital today." },
+  { id: "need", label: "High-need communities", weights: preset(14, 14, 12, 40, 10, 5, 5),
+    description: "Favors socially and economically vulnerable communities." },
+  { id: "value", label: "Best value", weights: preset(15, 8, 10, 6, 6, 20, 35),
+    description: "Favors the most benefit per construction dollar, at a size that fits local demand." },
+];
+
+export const RESULTS = { min: 1, max: 500, default: 30 };
 export const DEFAULT_FILTERS = {
   services: [], requireAllServices: false, minBeds: 0, maxBeds: 0,
   minScore: 0, routingRefined: "any", diversify: true,
