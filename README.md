@@ -615,13 +615,17 @@ Which files have what:
 Each of these is a judgment call. The counts come from `/api/health` on the
 current `raw/` snapshot.
 
-1. **Hospital locations are ZIP-code centroids.** Each hospital goes at the
-   PLACES ZCTA centroid for its ZIP (**5,208** hospitals). If the ZIP isn't a
-   ZCTA (PO-box or single-building ZIPs, such as UCLA's 90095), it goes to the
-   numerically nearest ZCTA with the same first three digits (**144**), then to
-   the county centroid (**1**). **1** hospital couldn't be placed. Every
-   hospital popup says which method was used. Hospitals in the same ZIP share a
-   point, and the popup lists all of them.
+1. **Hospital locations come from street addresses.** The CMS files have no
+   coordinates, so `build_data.py` geocodes every hospital's address
+   (`web/api/geocode_hospitals.py`): the U.S. Census Geocoder (**4,651**,
+   including 34 ambiguous addresses resolved to the nearest candidate), a
+   second CMS address file (**12**), then OpenStreetMap by name (**529**).
+   That puts **5,192 of 5,353 (97.0%)** at their real location. The other
+   **161** stay at their ZIP code's center (**154**, or a nearby ZIP's for
+   **7**) and are drawn as hollow rings. **1** hospital couldn't be placed at
+   all. Full explanation, including why some
+   addresses can't be matched:
+   [docs/hospital-locations.md](docs/hospital-locations.md).
 2. **Territories are left out.** PLACES covers the 50 states and DC only, so the
    **65** hospitals in PR, VI, GU, AS and MP have no population to score
    against and are dropped. **5,353** hospitals are on the map.
@@ -733,5 +737,5 @@ all of the ones listed above.
 | Changes in `web/src/` don't show up at :8000 | The server shows the built copy. Run `npm run build` in `web/`, or use `npm run dev` while editing. |
 | Map area is blank but the sidebar works | Your browser lacks WebGL2 (MapLibre 6 requires it); the map area says so. Use a current Chrome, Edge, Firefox or Safari. |
 | Grey map with no streets | The tile CDN is unreachable (offline or firewall). Hospitals and sites still draw. |
-| `Address already in use` | Something else is on port 8000. Use `--port 8001`. |
+| `Can't start on port 8000` | MedMap is already running (another `start.cmd` window, or Docker), or another program uses the port. Close the other one, run `docker compose -f docker/docker-compose.yml down`, or use `--port 8001`. (On Windows the server claims its port exclusively, so two copies can't silently share it.) |
 | First score takes a few seconds | Normal for a new radius nationwide. Later slider moves are near-instant. |

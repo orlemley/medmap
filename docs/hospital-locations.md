@@ -30,8 +30,8 @@ along it (for example, "Franklin St, 60–98, east side"). It finds the segment
 and estimates where the number falls. So it can only place an address if
 the street and that house number are in its street map.
 
-Running all 5,353 hospitals through it placed **{{CENSUS_N}} ({{CENSUS_PCT}}%)**.
-The other **{{CENSUS_FAIL_N}}** failed for these reasons, none of which is a
+Running all 5,353 hospitals through it placed **4,617 (86.3%)**.
+The other **736** failed for these reasons, none of which is a
 missing address:
 
 | Why it fails | Hospitals | Examples |
@@ -47,9 +47,9 @@ missing address:
 (Counts come from the first full run. Each hospital is counted under the
 first reason that fits.)
 
-Rewording or cleaning up the address text doesn't fix these. We tried: it
-recovered none. The address is right; the Census street map just doesn't
-cover it.
+Rewording or cleaning up the address text (dropping PO boxes and suite
+numbers) doesn't fix these. We tried, and it recovered none. The address is
+right; the Census street map just doesn't cover it.
 
 ## How each hospital gets its location
 
@@ -58,14 +58,26 @@ first location it gets.
 
 | Step | What it does | Hospitals placed |
 |---|---|---|
-| 1. Census Geocoder (batch) | The address as CMS lists it. Lands on the street in front of the hospital. | {{STEP1}} |
-| 2. Census Geocoder (one address at a time) | For "Tie" results, asks again to get every candidate and keeps the one nearest the hospital's ZIP area. | {{STEP2}} |
-| 3. A second CMS address | CMS's *Provider of Services* file sometimes has the street address when the main list only has a PO box ("PO Box 589" → "103 Fram Street"). Also retries the main address with PO box and suite text removed. | {{STEP3}} |
-| 4. OpenStreetMap | Looks for a hospital with a matching name within 12 miles of the hospital's ZIP area (25 miles if even the ZIP wasn't found). OpenStreetMap maps hospitals as buildings or campuses, so street numbering doesn't matter. | {{STEP4}} |
-| 5. Approximate | Nothing matched. The hospital stays at its ZIP code's center (or county center), and the map shows it as a hollow ring. | {{STEP5}} |
+| 1. Census Geocoder (batch) | The address as CMS lists it. Lands on the street in front of the hospital. | 4,617 |
+| 2. Census Geocoder (one address at a time) | For "Tie" results, asks again to get every candidate and keeps the one nearest the hospital's ZIP area. | 34 |
+| 3. A second CMS address | CMS's *Provider of Services* file sometimes has the street address when the main list only has a PO box ("PO Box 589" → "103 Fram Street"). Also retries the main address with PO box and suite text removed. | 12 |
+| 4. OpenStreetMap | Looks for a hospital with a matching name within 12 miles of the hospital's ZIP area (25 miles if even the ZIP wasn't found). OpenStreetMap maps hospitals as buildings or campuses, so street numbering doesn't matter. | 529 |
+| 5. Approximate | Nothing matched. The hospital stays at its ZIP code's center (or county center), and the map shows it as a hollow ring. | 161 |
 
-**Result: {{PRECISE_N}} of 5,353 hospitals ({{PRECISE_PCT}}%) are at their
-real location.** {{STEP5}} are approximate.
+**Result: 5,192 of 5,353 hospitals (97.0%) are at their
+real location.** 161 are approximate.
+
+The 161 that remain approximate:
+
+| Why | Hospitals | Examples |
+|---|---|---|
+| Name too generic, or too different between CMS and OpenStreetMap, to match safely | 110 | "University of Missouri Health Care" (OpenStreetMap: "MU Health Care University Hospital") |
+| Military, VA, federal or Indian Health Service sites | 20 | Bassett Army Community Hospital (Fort Wainwright) |
+| Only a PO box, no street address anywhere | 19 | "PO Box 43" (Maniilaq Health Center, Kotzebue AK) |
+| Highway or route address | 12 | "960 Hwy 71 N" |
+
+By type: 65 acute care, 38 critical access, 33 psychiatric, 10 Department of
+Defense, and a few others.
 
 ### How OpenStreetMap names are matched
 
@@ -76,6 +88,13 @@ dropped. The rest must overlap by at least half (Jaccard similarity ≥ 0.5). If
 several OpenStreetMap hospitals qualify, the closest name wins, then the
 nearest. A name made only of common words ("Community Hospital") is never
 matched, since it could be anyone.
+
+One OpenStreetMap hospital can't be two different hospitals. If two
+differently named CMS hospitals pick the same one, only the better name match
+keeps it, and the other stays approximate. This caught one mistake in the
+full run: "Whittier Hospital Medical Center" had matched "PIH Health Hospital
+- Whittier" on the word "Whittier" alone. The same hospital listed twice in CMS
+(for example as both acute care and critical access) may share a location.
 
 ### How accurate is it?
 
@@ -120,7 +139,7 @@ Answers are cached in `raw/_geocode_cache/` (git-ignored, like `raw/`):
 
 The Census steps take about a minute for all hospitals. The OpenStreetMap step
 uses the free public Overpass servers, which are often busy. It asks about
-60 hospitals per request and took **{{OSM_TIME}}** for the ~{{OSM_TODO}}
+60 hospitals per request and took **roughly 50 minutes (12 requests)** for the ~690
 hospitals it needed. It saves after each request, so an interrupted run
 resumes where it stopped.
 

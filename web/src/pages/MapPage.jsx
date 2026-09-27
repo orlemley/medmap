@@ -109,16 +109,19 @@ export default function MapPage() {
     }
   }, [basemap, layers.heatmap]);
 
-  const changeTextScale = (step) => {
-    const i = TEXT_SCALES.indexOf(textScale) + step;
-    if (i < 0 || i >= TEXT_SCALES.length) return;
-    setTextScale(TEXT_SCALES[i]);
+  // Step from the latest size (not this render's), so quick repeated clicks all count.
+  const changeTextScale = (step) =>
+    setTextScale((current) => {
+      const i = TEXT_SCALES.indexOf(current) + step;
+      return i < 0 || i >= TEXT_SCALES.length ? current : TEXT_SCALES[i];
+    });
+  useEffect(() => {
     try {
-      localStorage.setItem(TEXT_SCALE_KEY, String(TEXT_SCALES[i]));
+      localStorage.setItem(TEXT_SCALE_KEY, String(textScale));
     } catch {
       // still applies for this visit
     }
-  };
+  }, [textScale]);
 
   // --- Data from the API
   const [states, setStates] = useState([]);

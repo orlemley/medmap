@@ -304,8 +304,26 @@ def geocode_hospitals(hospitals, raw_dir, cache_dir, online=True, log=print):
             log(f"    OpenStreetMap: {start + len(chunk)}/{len(todo)} ({len(osm['places'])} hospitals found nearby)")
             time.sleep(2)
     places = list(osm["places"].values())
+    matches = {h["facility_id"]: best_osm_match(h, places, max_miles(h)) for h in remaining}
+    # One OpenStreetMap hospital can't be two different hospitals. If differently
+    # named CMS hospitals claim the same one (e.g. "PIH Health Hospital-Whittier"
+    # and "Whittier Hospital Medical Center", which share only "Whittier"), the
+    # best name match keeps it and the others stay approximate. The same hospital
+    # listed twice in CMS (e.g. as acute care and critical access) may share it.
+    claims = {}
     for h in remaining:
-        match = best_osm_match(h, places, max_miles(h))
+        match = matches[h["facility_id"]]
+        if match:
+            claims.setdefault(match[3]["osm"], []).append(h)
+    for claimants in claims.values():
+        if len({frozenset(name_tokens(h["name"])) for h in claimants}) > 1:
+            best = max(claimants, key=lambda h: (matches[h["facility_id"]][0], -matches[h["facility_id"]][1]))
+            for h in claimants:
+                if h is not best:
+                    matches[h["facility_id"]] = None
+                    steps["openstreetmap_conflicts_dropped"] = steps.get("openstreetmap_conflicts_dropped", 0) + 1
+    for h in remaining:
+        match = matches[h["facility_id"]]
         if match:
             _, _, name, place = match
             _place(h, place["lat"], place["lon"], "osm", f"{name} (OpenStreetMap {place['osm']})")

@@ -197,6 +197,17 @@ class MedMapAPI:
 
 
 class MedMapServer(ThreadingHTTPServer):
+    # Python's servers set SO_REUSEADDR. On Windows that lets a second server
+    # bind a port that's already in use, and requests then go to either one
+    # (e.g. start.cmd run twice, or Python and Docker both on 8000). Bind
+    # exclusively there, so a second MedMap fails with a clear message instead.
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
     def handle_error(self, request, client_address):
         # A browser closing a tab or cancelling a request mid-connection isn't
         # a server problem; skip the traceback for those.
@@ -380,7 +391,13 @@ def main():
         print("  Note: web/dist is missing, so only the API works. Run `npm install` and "
               "`npm run build` in web/ to build the site.", flush=True)
 
-    server = MedMapServer((args.host, args.port), make_handler(MedMapAPI(dataset, optimizer)))
+    try:
+        server = MedMapServer((args.host, args.port), make_handler(MedMapAPI(dataset, optimizer)))
+    except OSError as e:
+        sys.exit(f"Can't start on port {args.port}: {e.strerror or e}.\n"
+                 f"MedMap (or Docker, or another program) is probably already using it. Close the other "
+                 f"MedMap window or run `docker compose -f docker/docker-compose.yml down`, "
+                 f"or use another port: --port {args.port + 1}")
     shared = args.host in ("", "0.0.0.0", "::")
     browser_host = "127.0.0.1" if shared else args.host
     url = f"http://{browser_host}:{args.port}/"
