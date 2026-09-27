@@ -43,6 +43,10 @@ data/
 raw*/
 *.parquet
 
+# Generated Docker runtime bundle (a safe copy of active Stage 5/7/8 runs).
+/docker/runtime-data/*
+!/docker/runtime-data/.gitkeep
+
 # --- Python ---
 __pycache__/
 *.pyc
@@ -59,5 +63,7 @@ venv/
 # --- OS / editor junk ---
 .DS_Store
 Thumbs.db
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
 .idea/

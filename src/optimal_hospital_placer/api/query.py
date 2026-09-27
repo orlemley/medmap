@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import HTTPException
@@ -106,3 +107,74 @@ def default_limit_for_zoom(zoom: float | None) -> int:
     if zoom <= 10:
         return 300
     return 500
+
+
+def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance used only to spread already-ranked results."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dlat = p2 - p1
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+    return 2 * 3958.8 * math.asin(min(1.0, math.sqrt(a)))
+
+
+def initial_separation_miles(
+    limit: int,
+    bbox: tuple[float, float, float, float] | None,
+    state: str | None,
+) -> float:
+    """Choose a useful starting separation for national and viewport searches."""
+    if bbox:
+        west, south, east, north = bbox
+        diagonal = haversine_miles(south, west, north, east)
+        # Approximate spacing for `limit` points covering the visible area.
+        return max(5.0, min(75.0, diagonal * 0.75 / math.sqrt(max(1, limit))))
+    return 40.0 if state else 75.0
+
+
+def diversify_ranked_rows(
+    rows: list[dict[str, Any]],
+    limit: int,
+    *,
+    bbox: tuple[float, float, float, float] | None = None,
+    state: str | None = None,
+) -> tuple[list[dict[str, Any]], float]:
+    """Select high-ranked, distinct communities while preserving score order.
+
+    At most one point per source tract is eligible. Distance is relaxed in
+    stages, so sparse searches remain widely spread and dense searches still
+    fill the requested result count when enough distinct tracts exist.
+    """
+    unique: list[dict[str, Any]] = []
+    seen_tracts: set[str] = set()
+    for row in rows:
+        tract = str(row.get("source_tract_geoid") or row.get("tract_geoid") or row.get("site_id"))
+        if tract in seen_tracts:
+            continue
+        try:
+            float(row["latitude"]); float(row["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        seen_tracts.add(tract)
+        unique.append(row)
+
+    initial = initial_separation_miles(limit, bbox, state)
+    thresholds = [initial, initial * .75, initial * .5, initial * .25, initial * .1, 0.0]
+    selected: list[dict[str, Any]] = []
+    selected_sites: set[str] = set()
+    for threshold in thresholds:
+        for row in unique:
+            site = str(row.get("site_id"))
+            if site in selected_sites:
+                continue
+            lat, lon = float(row["latitude"]), float(row["longitude"])
+            if threshold and any(
+                haversine_miles(lat, lon, float(other["latitude"]), float(other["longitude"])) < threshold
+                for other in selected
+            ):
+                continue
+            selected.append(row)
+            selected_sites.add(site)
+            if len(selected) >= limit:
+                return selected, initial
+    return selected, initial

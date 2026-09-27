@@ -22,3 +22,8 @@ data
 addresses
 *.svg
 **/.env
+
+# The self-contained image includes only the explicitly prepared runtime copy.
+# These negations override the general *.parquet exclusion above.
+!docker/runtime-data/
+!docker/runtime-data/**

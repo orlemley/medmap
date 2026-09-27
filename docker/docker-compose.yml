@@ -26,9 +26,6 @@ services:
       - "${MEDMAP_PORT:-8000}:8000"
     environment:
       OHP_PROJECT_ROOT: /app
-    volumes:
-      # Processed snapshots are deployment data, not baked into the image.
-      - ../data:/app/data:ro
     restart: unless-stopped
 
   # Hot-reload React dev server. Only starts with `--profile dev`.

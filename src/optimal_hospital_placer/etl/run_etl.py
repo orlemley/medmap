@@ -277,7 +277,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--geocode", action=argparse.BooleanOptionalAction, default=True,
-        help="Fetch missing Census/OSM hospital geocodes (default); --no-geocode uses cache only",
+        help="Fetch missing primary Census hospital geocodes (default); --no-geocode uses cache only",
+    )
+    parser.add_argument(
+        "--network-fallbacks", action="store_true",
+        help="Opt into live tie/alternate/OSM lookups; off by default so public services cannot stall the ETL",
     )
     parser.add_argument("--states", nargs="+", help="State FIPS codes; default is all states and DC")
     parser.add_argument("--boundary-dir", type=Path, default=ROOT / "data/reference/tiger2023")
@@ -353,6 +357,8 @@ def main() -> int:
                               "--geocode-cache", args.geocode_cache.resolve()]
     if args.geocode:
         stage3_args.append("--geocode")
+    if args.network_fallbacks:
+        stage3_args.append("--network-fallbacks")
     if args.states:
         stage3_args.extend(["--states", *args.states])
     states_args: list[Any] = ["--states", *args.states] if args.states else []

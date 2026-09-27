@@ -1,13 +1,13 @@
 # MedMap: the whole demo (React site + Python API) in one image.
 #
 # Build from the repo root (the build context must include web/):
+#   python docker/prepare_runtime_data.py
 #   docker build -f docker/Dockerfile -t medmap .
-#   docker run --rm -p 8000:8000 -v /path/to/repo/data:/app/data:ro medmap
-#                                                    -> http://localhost:8000
+#   docker run --rm -p 8000:8000 medmap  -> http://localhost:8000
 # Or use docker/docker-compose.yml (see README "Running with Docker").
 #
-# The React site is built in stage 1. At runtime, mount the processed data/
-# snapshots at /app/data (as docker-compose.yml does).
+# The React site is built in stage 1. The selected unmodified Stage 5/7/8
+# snapshots are prepared separately and embedded at /app/data.
 
 # ---- Stage 1: build the React site -----------------------------------------
 FROM node:24-slim AS web-build
@@ -39,6 +39,10 @@ COPY src/optimal_hospital_placer/api/requirements.txt /tmp/api-requirements.txt
 RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
 COPY src ./src
 COPY --from=web-build /web/dist web/dist
+COPY --chown=10001:10001 docker/runtime-data/ /app/data/
+RUN test -f /app/data/stage5/latest_success.json \
+    && test -f /app/data/stage7/latest_success.json \
+    && test -f /app/data/stage8/latest_success.json
 
 USER 10001
 EXPOSE 8000

@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run complete ETL",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/optimal_hospital_placer/etl/run_etl.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  ]
+}

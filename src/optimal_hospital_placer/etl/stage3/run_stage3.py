@@ -38,6 +38,8 @@ def main():
     parser.add_argument('--output-dir', type=Path, default=ROOT / 'data/stage3')
     parser.add_argument('--geocode-cache', type=Path, default=ROOT / 'data/reference/geocode_cache')
     parser.add_argument('--geocode', action='store_true', help='Send public facility addresses to Census; cache responses')
+    parser.add_argument('--network-fallbacks', action='store_true',
+                        help='Try live Census tie/alternate and OpenStreetMap fallbacks; off by default')
     parser.add_argument('--states', nargs='+', choices=list(STATES), default=list(STATES))
     parser.add_argument('--ahrf-columns', nargs='+', help='Reviewed stage 2 columns from the main county AHRF file')
     parser.add_argument('--crosswalks', type=Path, help='JSON reviewed one-to-one identifier equivalences; no areal interpolation')
@@ -88,7 +90,8 @@ def main():
                              ['fips_st_cnty', 'rural_urban_contnm_23', 'hpsa_prim_care_25', 'hpsa_dent_25', 'hpsa_mentl_hlth_25'], crosswalks)
         print('Building facility registry', flush=True)
         facilities = registry(catalog, states, run)
-        facilities = assign(geocode(facilities, cache, args.geocode, catalog, quality), tracts, counties)
+        facilities = assign(geocode(facilities, cache, args.geocode, catalog, quality,
+                                    network_fallbacks=args.network_fallbacks), tracts, counties)
         print('Overlaying MUA/P component boundaries', flush=True)
         designations = load_designations(catalog, run, quality, inputs)
         tracts = overlay_features(tracts, 'tract_geoid', designations, run)
