@@ -1,9 +1,3 @@
-## How to Use
-
-link here
-
----
-
 # MedMap
 
 A data-driven hospital planning tool that identifies **where new hospitals could have the greatest impact** and **what kind of hospital should be built there**.
@@ -47,25 +41,7 @@ Highlights:
 
 ---
 
-## Run the project locally
-
-## Docker
-
-To start:
-```powershell
-docker compose -f .\docker\docker-compose.yml up --build
-```
-
-Visit http://localhost:8000 to interact with the app
-
-To shut down:
-```powershell
-docker compose -f .\docker\docker-compose.yml down
-```
-
----
-
-## Vite and Uvicorn
+## Run the project
 
 Run these commands from the repository root.
 
@@ -119,6 +95,33 @@ server: {
 
 ---
 
+## Optional: public judge URL with Cloudflare Tunnel
+
+If `cloudflared` is installed, keep both the FastAPI backend and frontend running, then expose the frontend:
+
+```powershell
+cloudflared tunnel --url http://localhost:5173
+```
+
+Cloudflare will print a temporary public HTTPS URL.
+
+Because the frontend uses relative `/api/...` requests and Vite proxies `/api` to FastAPI on port `8080`, the same public URL can serve both the UI and backend requests.
+
+In other words:
+
+```text
+Judge
+  ↓
+Cloudflare public URL
+  ↓
+Vite frontend :5173
+  ├── frontend assets
+  └── /api/* → FastAPI :8080
+```
+
+The computer hosting the demo must remain powered on and connected to the internet.
+
+---
 
 ## Data pipeline
 

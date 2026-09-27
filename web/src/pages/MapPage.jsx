@@ -62,9 +62,9 @@ const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
 
 // Map style (satellite or street map), heatmap on/off and whether the
 // recommended sites follow the map, remembered per browser. First-time
-// visitors get satellite photos, the heatmap, and a fixed list of sites.
+// visitors get satellite photos, the heatmap, and sites that follow the map.
 const MAP_VIEW_KEY = "medmap-map-view";
-const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true, followMap: false };
+const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true, followMap: true };
 function readMapView() {
   try {
     const saved = JSON.parse(localStorage.getItem(MAP_VIEW_KEY));
