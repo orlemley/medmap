@@ -2,11 +2,46 @@
 
 A hospital-placement recommendation tool built for **TigerHacks26**.
 
-MedMap suggests where a new hospital should be built so that it cuts driving
-distance for the people farthest from care and takes pressure off existing
-hospitals. It combines census population, HRSA shortage-area designations, and
-CMS hospital locations, and shows the results on an interactive map where you
-set how much each factor matters.
+## What it does
+
+MedMap recommends where a new hospital should be built. It combines:
+
+- **Census population** by tract, to see where people live
+- **HRSA shortage-area designations** (MUA/P and HPSA), to see where care is
+  already scarce
+- **CMS hospital locations**, to see how far people are from the nearest hospital
+  and how much load each existing hospital carries
+
+It ranks candidate sites on an interactive map. You set how much each factor
+matters, such as driving distance, shortage status and pressure on nearby
+hospitals, and the recommendations update to match.
+
+## Why it matters
+
+Millions of Americans, especially in rural areas, live a long drive from the
+nearest hospital. In an emergency, that distance costs lives. Choosing a site
+for a new hospital is a costly, long-term decision, and it often rests on
+scattered data and guesswork. MedMap puts the relevant public data in one place
+and shows the trade-offs, such as a dense city versus an underserved rural
+area, so the decision can rest on evidence.
+
+## Who it's for
+
+- **Health-system planners and hospital developers** choosing where to expand
+- **Public-health agencies and policymakers** deciding where to direct
+  funding for underserved areas
+- **Engineers and analysts** who need tract-level access and demand data
+
+Results are planning evidence, not a replacement for detailed site, clinical,
+regulatory or financial analysis.
+
+## How we planned it
+
+Our first whiteboard sketch: census and hospital data go into a ranking
+algorithm that outputs optimal placements, shown on a MapLibre map with
+toggleable layers and a heatmap.
+
+![Whiteboard planning sketch for MedMap](docs/images/whiteboard-plan.jpg)
 
 For other deployment options, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
