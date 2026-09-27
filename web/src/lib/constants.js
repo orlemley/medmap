@@ -3,14 +3,46 @@ export const DEFAULT_WEIGHTS = {
   cost_efficiency: 0.08, drive_access: 0.16, service_fit: 0.12,
 };
 
+// The seven Stage 8 score factors, in plain words. `key` is the API name
+// (<key>_score on each site); `help` says what the pipeline measures
+// (etl/stage6 fast_stage6.py, stage7 optimize.py, stage8 travel.py and
+// services.py); `reason` finishes "Mainly because …" in a site's popup.
 export const WEIGHTS = [
-  { key: "access", label: "Access", help: "People who gain timely access to care" },
-  { key: "capacity", label: "Capacity gap", help: "Existing hospital and bed-capacity shortfall" },
-  { key: "vulnerability", label: "Vulnerability", help: "Social and demographic need in the catchment" },
-  { key: "configuration_fit", label: "Facility fit", help: "Fit of the proposed hospital configuration" },
-  { key: "cost_efficiency", label: "Cost efficiency", help: "Relative benefit for the proposed facility scale" },
-  { key: "drive_access", label: "Drive access", help: "Modeled improvement in travel access" },
-  { key: "service_fit", label: "Service fit", help: "Strength of the recommended clinical-service mix" },
+  {
+    key: "access", label: "People helped",
+    help: "Drive time saved across everyone nearby, plus people newly within 30 minutes of a hospital",
+    reason: "it would cut drive times for a lot of people",
+  },
+  {
+    key: "drive_access", label: "Remoteness",
+    help: "How far the nearest hospital is today, and how many minutes a new one saves each resident",
+    reason: "people here live far from a hospital today",
+  },
+  {
+    key: "capacity", label: "Bed shortage",
+    help: "People per existing hospital bed within a 30-minute drive",
+    reason: "nearby hospitals have too few beds for the population",
+  },
+  {
+    key: "vulnerability", label: "Community need",
+    help: "Social and economic vulnerability of the people within a 30-minute drive",
+    reason: "it would serve a high-need community",
+  },
+  {
+    key: "service_fit", label: "Service demand",
+    help: "How strongly local health needs call for the services this site would offer",
+    reason: "local health needs match the services it would offer",
+  },
+  {
+    key: "configuration_fit", label: "Right size",
+    help: "Whether the proposed bed count matches unmet local demand, with enough people nearby to support it",
+    reason: "its proposed size fits local demand",
+  },
+  {
+    key: "cost_efficiency", label: "Value for cost",
+    help: "Benefit (time saved, people reached, beds added) per dollar of estimated construction cost",
+    reason: "it delivers a lot of benefit for its cost",
+  },
 ];
 
 export const RESULTS = { min: 1, max: 500, default: 75 };

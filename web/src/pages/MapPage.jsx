@@ -14,11 +14,14 @@ import { useOptimize } from "../hooks/useOptimize.js";
 import { ApiUnavailable, getCandidateDetail, getHospitals, getMeta, getPopulation, getServices, getStates } from "../lib/api.js";
 import { DEBOUNCE_MS, DEFAULT_FILTERS, DEFAULT_WEIGHTS, EMPTY_FC, RESULTS, STATE_NAMES, TEXT_SCALES, US_BOUNDS, WEIGHTS } from "../lib/constants.js";
 import { clampNumber, fmt } from "../lib/format.js";
+import { asShares, setShare } from "../lib/weights.js";
 import { useTheme } from "../theme.jsx";
 
 function readUrl(params) {
-  const weights = Object.fromEntries(WEIGHTS.map(({ key }) => [key,
-    clampNumber(params.get("w_" + key), 0, 1, DEFAULT_WEIGHTS[key], 3)]));
+  // Kept as shares that add up to 1 (older links may not), which the sliders
+  // show as percentages. The API scales weights the same way, so results match.
+  const weights = asShares(Object.fromEntries(WEIGHTS.map(({ key }) => [key,
+    clampNumber(params.get("w_" + key), 0, 1, DEFAULT_WEIGHTS[key], 6)])));
   const services = (params.get("services") || "").split(",").filter(Boolean);
   return {
     weights,
@@ -38,7 +41,7 @@ function readUrl(params) {
 
 function shareQuery({ weights, region, limit, filters }) {
   const q = new URLSearchParams();
-  WEIGHTS.forEach(({ key }) => q.set("w_" + key, weights[key]));
+  WEIGHTS.forEach(({ key }) => q.set("w_" + key, String(Number(weights[key].toFixed(6)))));
   if (region) q.set("state", region);
   q.set("limit", limit);
   if (filters.services.length) q.set("services", filters.services.join(","));
@@ -173,7 +176,13 @@ export default function MapPage() {
     return () => controller.abort();
   }, [layers.heatmap, debouncedViewport, region]);
 
-  useEffect(() => { setPopup((p) => p?.kind === "candidate" ? null : p); setHoveredCandidate(null); }, [optimize.candidates]);
+  // New results arrive after every map move (they're for the visible area), so
+  // a site's popup stays open as long as that site is still in them.
+  useEffect(() => {
+    const ids = new Set(optimize.candidates.features.map((f) => String(f.id)));
+    setPopup((p) => p?.kind === "candidate" && !ids.has(String(p.ids[0])) ? null : p);
+    setHoveredCandidate(null);
+  }, [optimize.candidates]);
 
   useEffect(() => {
     if (!detail.siteId) return;
@@ -200,10 +209,6 @@ export default function MapPage() {
     setDetail({ siteId: String(feature.id), status: "loading", data: null, error: null });
   };
 
-  const normalizeWeights = () => {
-    const total = Object.values(weights).reduce((a, b) => a + b, 0);
-    if (total > 0) setWeights(Object.fromEntries(Object.entries(weights).map(([key, v]) => [key, Math.round(v / total * 1000) / 1000])));
-  };
   const changeFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
   const toggleService = (id) => setFilters((current) => ({ ...current, services: current.services.includes(id) ? current.services.filter((x) => x !== id) : [...current.services, id] }));
   const toggleLayer = (key) => setLayers((current) => ({ ...current, [key]: !current[key] }));
@@ -270,7 +275,7 @@ export default function MapPage() {
         <div className="sidebar-top"><TextSizeControl scale={textScale} canSmaller={textScale > TEXT_SCALES[0]} canLarger={textScale < TEXT_SCALES.at(-1)} onSmaller={() => changeTextScale(-1)} onLarger={() => changeTextScale(1)} /><button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>Close</button></div>
         <StatusBar kind={status.kind}>{status.text}</StatusBar>
         <Panel title="Region"><RegionSelect states={lookups.states} value={region} onChange={setRegion} /></Panel>
-        <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, value) => setWeights((w) => ({ ...w, [key]: value }))} onNormalize={normalizeWeights} /></Panel>
+        <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, percent) => setWeights((w) => setShare(w, key, percent))} /></Panel>
         <Panel title="Services"><ServiceFilters services={lookups.services} selected={filters.services} requireAll={filters.requireAllServices} onToggle={toggleService} onRequireAll={(v) => changeFilter("requireAllServices", v)} /></Panel>
         <Panel title="Site filters"><ModelFilters filters={filters} onChange={changeFilter} limit={limit} onLimit={setLimit} /></Panel>
         <CandidateDetail state={detail} onClose={() => setDetail({ siteId: null, status: "idle", data: null, error: null })} />
