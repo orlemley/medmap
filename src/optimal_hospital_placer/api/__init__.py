@@ -1,1 +1,1 @@
-"""FastAPI serving layer for Stage 5 hospital-siting data."""
+"""Final FastAPI application for the Optimal Hospital Placer."""

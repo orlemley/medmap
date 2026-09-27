@@ -1,0 +1,1 @@
+curl.exe --form addressFile=@addresses.csv --form benchmark=4 --form vintage=4 https://geocoding.geo.census.gov/geocoder/geographies/addressbatch --output geocoderresult.csv
