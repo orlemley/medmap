@@ -1,0 +1,21 @@
+{
+  "distance_method": "great_circle_from_equal_area_geometry_centroid",
+  "finished_utc": "2026-09-27T10:08:11.839265+00:00",
+  "outputs": {
+    "county_features": "county_features.parquet",
+    "facilities": "facilities.parquet",
+    "feature_dictionary": "feature_dictionary.json",
+    "summary": "summary.json",
+    "tract_features": "tract_features.parquet"
+  },
+  "rows": {
+    "counties": 3144,
+    "facilities": 168598,
+    "tracts": 84415
+  },
+  "score_status": "screening_only_unvalidated",
+  "stage4_run": "C:\\Projects\\hackathon\\data\\stage4\\runs\\e95554145d66485b9019a6803929168c1d85e95505a221cd2d56d98a70523a48",
+  "started_utc": "2026-09-27T10:07:41.092730+00:00",
+  "status": "complete",
+  "run_directory": "data/stage5/runs/20260927T100741Z-94f65e87"
+}

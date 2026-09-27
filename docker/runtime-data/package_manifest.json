@@ -1,0 +1,107 @@
+{
+  "status": "complete",
+  "created_utc": "2026-09-27T10:57:22.795751+00:00",
+  "note": "Generated copy for Docker; source data was not modified or removed.",
+  "files": [
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/county_features.parquet",
+      "bytes": 117031384,
+      "sha256": "318433e574c139f0a5f8306af4869bcb76210d9e74d980aaf9c6257fdcd303db"
+    },
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/facilities.parquet",
+      "bytes": 9323428,
+      "sha256": "3327aa45928bfd1b05b8b9141a2843f13b12e8539434b668679fb760b2897045"
+    },
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/feature_dictionary.json",
+      "bytes": 3227,
+      "sha256": "f75b401e5df36214e02000b4a05527b0474d9e0ea375843f8c68eb2eae45655e"
+    },
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/manifest.json",
+      "bytes": 726,
+      "sha256": "da6d19ca7a15e0d41dcbef675a478ccb38009c7f9cb7e5e624b1da3baea1e76f"
+    },
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/summary.json",
+      "bytes": 480,
+      "sha256": "be9fdb686e1e551af90335103b0242e666b9cca8c2d7ac427453575ae9888102"
+    },
+    {
+      "path": "stage5/runs/20260927T100741Z-94f65e87/tract_features.parquet",
+      "bytes": 621947769,
+      "sha256": "2940bb6518d7f57237780a64df762ce7eac717d786f24545adad23057db776ff"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/assumptions.json",
+      "bytes": 2820,
+      "sha256": "5e25d4f002bd1cbca43bc74a97c28137bd6ab0d827427c0d0c8439a5c8be28e7"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/candidate_hospitals.parquet",
+      "bytes": 35159760,
+      "sha256": "cad0ceb780cfed35e6f4ee7cff72c70ed638574b276bc749b4ee1bc0b29a77a7"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/finalists.parquet",
+      "bytes": 1082474,
+      "sha256": "66b70c7d2e8b89221974cd9a3697d1dbef29a4ef2b19c12e5c14d1e0c25895ca"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/manifest.json",
+      "bytes": 4088,
+      "sha256": "f9c62fd8c05749b517bbf16913004cf823fba106fd8135386c97151f47c562fb"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/routing_refinement_queue.parquet",
+      "bytes": 105140,
+      "sha256": "8b88b2f5ad8feb454e43958baf598c004331bd14bf9ae80dc65f786e80189ddb"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/summary.json",
+      "bytes": 786,
+      "sha256": "e8c4d14b962404137d086bf3157a81f624b977b3e80e9c0877b0b0635ea95362"
+    },
+    {
+      "path": "stage7/runs/20260927T101055Z/top_sites.parquet",
+      "bytes": 12501782,
+      "sha256": "f9d9f6d518666e75e3b2e5e597749d9e3165094fb63e320180366fd356e6d6a4"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/assumptions.json",
+      "bytes": 3730,
+      "sha256": "53f209fc871b070adbe541071abd4b0e301f481d43ee0f759b75bd50fbcd0dab"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/final_candidates.parquet",
+      "bytes": 21524891,
+      "sha256": "23a0bc28df35f4de31d103c128e2ae121f42e23b449fadaac1459a604fee9885"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/manifest.json",
+      "bytes": 1375,
+      "sha256": "777e8b32d272afaab63850366601f74825bc8586557869156ae254b5bb137e8c"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/precise_routing_queue.parquet",
+      "bytes": 591764,
+      "sha256": "e9a50c05bdfb332a89429eccacc02ab20abb2c7358554b6b86ef3ebd09ce27b0"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/service_recommendations.parquet",
+      "bytes": 4563303,
+      "sha256": "6781ab45855c825be0eb63acee7851cad389fe514814343d83ea90eb7978bec5"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/summary.json",
+      "bytes": 409,
+      "sha256": "297a0ed4b6652c40bd6dfb4c53c45e7345a7c70480b16d636821dab324050bbf"
+    },
+    {
+      "path": "stage8/runs/20260927T101105Z-d09b2752/travel_access_summary.parquet",
+      "bytes": 3174094,
+      "sha256": "b23477c0302fdcf8e51c8c5fd16e6bd975433e016f3c5c12d21dc7875f9aac1c"
+    }
+  ]
+}
