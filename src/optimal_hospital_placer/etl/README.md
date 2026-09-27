@@ -1,13 +1,29 @@
 # Run the complete ETL pipeline (Stages 1–8)
 
-Requires Python 3.10+, existing raw downloads in `data/raw`, and prepared TIGER boundaries (see
-[stage 3 instructions](stage3/README.md)). By default, the runner first asks the active Python
+Requires Python 3.10+ and existing raw downloads in `data/raw`. By default, the runner first asks the active Python
 interpreter's pip to resolve and install every stage's `requirements.txt` in one
 transaction. Use a project virtual environment so these packages stay isolated;
 `--skip-dependency-install` opts out for an already provisioned or offline environment.
-The runner downloads missing ACS files during stage 4;
-other raw inputs and boundaries must already be prepared. Use
-`--skip-acs-download` to require cached ACS inputs instead.
+Before Stage 3, the runner downloads and checksum-caches the required Census
+TIGER 2023 county and tract boundaries. It downloads missing ACS files during
+Stage 4. Other raw inputs must already exist. Use `--skip-boundary-download`
+or `--skip-acs-download` to require the corresponding cached inputs instead.
+
+Successful stages are checkpointed by their immutable input run, parameters,
+relevant Python source hash, and (for Stage 1) raw-file size/timestamp inventory.
+An identical repeat reuses each validated completed run and republishes its
+pointer instead of producing duplicate output. Use `--force-stage stage5` to
+rebuild one stage (changed output automatically invalidates downstream keys),
+`--force-stage all` or `--no-stage-cache` for a clean rebuild, and
+`--force-dependency-install` to bypass the requirements checkpoint. The runner
+does not inventory the optional nationwide OSM PBF because the current fast
+travel model never consumes it; standalone Stage 1 can still inventory OSM.
+
+The runner stores operational run references relative to the repository, such
+as `data/stage8/runs/<id>`. At startup it also migrates resolvable legacy
+`latest_success.json` pointers containing another checkout's absolute Windows
+path. Absolute paths printed in the console are only the commands executing on
+the current computer; they are not persisted as cross-machine run pointers.
 
 From the repository root:
 

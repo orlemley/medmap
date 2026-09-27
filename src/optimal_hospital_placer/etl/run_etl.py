@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import subprocess
 import sys
 from typing import Any
@@ -26,6 +27,20 @@ REQUIREMENTS = [
     ETL / "stage7/requirements.txt",
     ETL / "stage8/requirements.txt",
 ]
+STAGE1_SOURCES = ["ACS", "AHRF", "CMSFacilities", "CMSHospital", "HPSA", "MUAP",
+                  "PLACES", "RUCA", "SVI"]
+CACHE_PATH = ROOT / "data/etl/stage_cache.json"
+REQUIRED_OUTPUTS = {
+    "stage1": ["tables.json", "inventory.json"],
+    "stage2": ["tables.json", "source_inventory.json"],
+    "stage3": ["tracts.parquet", "counties.parquet", "facilities.parquet"],
+    "stage4": ["tracts.parquet", "counties.parquet", "facilities.parquet"],
+    "stage5": ["tract_features.parquet", "county_features.parquet", "facilities.parquet"],
+    "stage6a": ["screened_tracts.parquet", "shortlisted_tracts.parquet"],
+    "stage6": ["candidate_sites.parquet", "candidate_site_features.parquet", "existing_access.parquet"],
+    "stage7": ["candidate_hospitals.parquet", "top_sites.parquet", "finalists.parquet"],
+    "stage8": ["final_candidates.parquet", "service_recommendations.parquet", "travel_access_summary.parquet"],
+}
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -37,7 +52,102 @@ def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, default=str), encoding="utf-8")
 
 
-def install_dependencies() -> None:
+def portable_path(path: Path) -> str:
+    """Store repository-owned paths without embedding one developer's checkout."""
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def resolve_run_reference(value: Any, pointer: Path) -> Path:
+    """Resolve relative refs and recover old Windows refs copied to another host."""
+    raw = str(value)
+    declared = Path(raw)
+    candidates = [declared] if declared.is_absolute() else [ROOT / declared]
+    run_id = PureWindowsPath(raw).name if "\\" in raw else declared.name
+    candidates.append(pointer.parent / "runs" / run_id)
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        f"Published run does not exist for {pointer}: {raw!r}; "
+        f"also tried {pointer.parent / 'runs' / run_id}"
+    )
+
+
+def portable_argument(value: Any) -> str:
+    return portable_path(value) if isinstance(value, Path) else str(value)
+
+
+def portable_value(value: Any) -> Any:
+    if isinstance(value, Path):
+        return portable_path(value)
+    if isinstance(value, dict):
+        return {key: portable_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [portable_value(item) for item in value]
+    return value
+
+
+def normalize_operational_pointers() -> None:
+    """Migrate copied/local latest-success pointers away from checkout-specific paths."""
+    data_root = ROOT / "data"
+    if not data_root.is_dir():
+        return
+    for pointer in data_root.rglob("latest_success.json"):
+        try:
+            published = read_json(pointer)
+            if "run_directory" not in published:
+                continue
+            run = resolve_run_reference(published["run_directory"], pointer)
+            reference = portable_path(run)
+            if published["run_directory"] != reference:
+                published["run_directory"] = reference
+                write_json(pointer, published)
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError):
+            # The owning stage will provide the actionable validation error if
+            # this pointer is selected. Do not rewrite an unresolved reference.
+            continue
+
+
+def digest_json(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def code_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    files = [path] if path.is_file() else sorted(path.rglob("*.py"))
+    for file in files:
+        digest.update(file.relative_to(ETL).as_posix().encode())
+        digest.update(file.read_bytes())
+    return digest.hexdigest()
+
+
+def raw_snapshot() -> list[tuple[str, int, int]]:
+    raw = ROOT / "data/raw"
+    snapshot = []
+    for source in STAGE1_SOURCES:
+        folder = raw / source
+        if not folder.is_dir():
+            raise FileNotFoundError(f"Missing raw source directory: {folder}")
+        files = [p for p in folder.rglob("*") if p.is_file() and not p.name.endswith(".part")]
+        if not files:
+            raise FileNotFoundError(f"Raw source directory has no inputs: {folder}")
+        for file in sorted(files):
+            stat = file.stat()
+            snapshot.append((file.relative_to(raw).as_posix(), stat.st_size, stat.st_mtime_ns))
+    return snapshot
+
+
+def boundary_identity(directory: Path) -> Any:
+    manifest = directory / "manifest.json"
+    return read_json(manifest) if manifest.is_file() else None
+
+
+def install_dependencies(force: bool = False) -> None:
     """Resolve every stage's declared requirements into this interpreter."""
     missing = [path for path in REQUIREMENTS if not path.is_file()]
     if missing:
@@ -49,12 +159,62 @@ def install_dependencies() -> None:
     if pip_check.returncode:
         print("pip is missing; bootstrapping it with ensurepip", flush=True)
         subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], check=True)
+    identity = digest_json({str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
+                            for path in REQUIREMENTS})
+    marker = ROOT / "data/etl/dependencies.json"
+    python_identity = {"version": sys.version, "executable": Path(sys.executable).name}
+    if not force and marker.is_file():
+        cached = read_json(marker)
+        check = subprocess.run([sys.executable, "-m", "pip", "check"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if cached.get("identity") == identity and cached.get("python") == python_identity and check.returncode == 0:
+            print("\n=== Python dependencies already satisfied (cached) ===", flush=True)
+            return
     command = [sys.executable, "-m", "pip", "install"]
     for path in REQUIREMENTS:
         command.extend(["--requirement", str(path)])
     print("\n=== Preparing Python dependencies ===", flush=True)
     print("Command:", subprocess.list2cmdline(command), flush=True)
     subprocess.run(command, check=True)
+    write_json(marker, {"identity": identity, "python": python_identity,
+                        "completed_utc": datetime.now(timezone.utc).isoformat()})
+
+
+def completed_run(stage_key: str, run: Path) -> tuple[bool, dict[str, Any]]:
+    for name in ("manifest.json", "run.json"):
+        path = run / name
+        if path.is_file():
+            report = read_json(path)
+            complete = report.get("status") in {"complete", "complete_with_review_items"}
+            outputs_exist = all((run / name).is_file() for name in REQUIRED_OUTPUTS[stage_key])
+            return complete and outputs_exist, report
+    return False, {}
+
+
+def run_cached_stage(stage_key: str, label: str, script: Path, arguments: list[Any], pointer: Path,
+                     cache: dict[str, Any], force: set[str], extra_identity: Any = None) -> Path:
+    identity = digest_json({
+        "stage": stage_key,
+        "arguments": [portable_argument(value) for value in arguments],
+        "code": code_digest(script.parent),
+        "extra": extra_identity,
+    })
+    record = cache.get(stage_key, {})
+    try:
+        cached_run = resolve_run_reference(record["run_directory"], pointer)
+    except (KeyError, FileNotFoundError):
+        cached_run = ROOT / "__missing__"
+    valid, report = completed_run(stage_key, cached_run) if cached_run.is_dir() else (False, {})
+    if stage_key not in force and "all" not in force and record.get("identity") == identity and valid:
+        print(f"\n=== {label} ===", flush=True)
+        print(f"Using cached completed run: {cached_run}", flush=True)
+        write_json(pointer, {**report, "run_directory": portable_path(cached_run)})
+        return cached_run.resolve()
+    run = run_publishing_stage(label, script, arguments, pointer)
+    cache[stage_key] = {"identity": identity, "run_directory": portable_path(run),
+                        "completed_utc": datetime.now(timezone.utc).isoformat()}
+    write_json(CACHE_PATH, cache)
+    return run
 
 
 def run_publishing_stage(label: str, script: Path, arguments: list[Any], pointer: Path) -> Path:
@@ -72,10 +232,18 @@ def run_publishing_stage(label: str, script: Path, arguments: list[Any], pointer
     published = read_json(pointer)
     if published.get("status") not in {None, "complete", "complete_with_review_items"}:
         raise RuntimeError(f"{label} published non-success status: {published.get('status')}")
-    run = Path(published["run_directory"]).resolve()
-    if not run.is_dir():
-        raise RuntimeError(f"{label} published a missing run directory: {run}")
+    run = resolve_run_reference(published["run_directory"], pointer)
+    published["run_directory"] = portable_path(run)
+    write_json(pointer, published)
     return run
+
+
+def run_step(label: str, script: Path, arguments: list[Any]) -> None:
+    """Run a required preparation step that does not publish a stage pointer."""
+    command = [sys.executable, "-u", str(script), *map(str, arguments)]
+    print(f"\n=== {label} ===", flush=True)
+    print("Command:", subprocess.list2cmdline(command), flush=True)
+    subprocess.run(command, check=True)
 
 
 def require_count(run: Path, field_path: tuple[str, ...], minimum: int, label: str) -> None:
@@ -96,8 +264,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--geocode-cache", type=Path, default=ROOT / "data/reference/geocode_cache")
     parser.add_argument("--skip-acs-download", action="store_true",
                         help="Require existing ACS downloads instead of downloading missing files")
+    parser.add_argument("--skip-boundary-download", action="store_true",
+                        help="Require cached TIGER 2023 boundary ZIPs instead of downloading missing files")
     parser.add_argument("--skip-dependency-install", action="store_true",
                         help="Do not run pip; require the current interpreter to be pre-provisioned")
+    parser.add_argument("--force-dependency-install", action="store_true",
+                        help="Run pip even when the requirements checkpoint is valid")
+    parser.add_argument("--no-stage-cache", action="store_true",
+                        help="Rebuild every stage instead of reusing matching completed runs")
+    parser.add_argument("--force-stage", action="append", default=[],
+                        choices=["all", "stage1", "stage2", "stage3", "stage4", "stage5",
+                                 "stage6a", "stage6", "stage7", "stage8"],
+                        help="Rebuild this stage; downstream cache identities then change")
     parser.add_argument("--allow-small-output", action="store_true",
                         help="Disable nationwide sample-size guards (state-restricted runs disable them automatically)")
 
@@ -144,8 +322,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    normalize_operational_pointers()
     pipeline_started = datetime.now(timezone.utc).isoformat()
     runs: dict[str, str] = {}
+    cache = read_json(CACHE_PATH) if CACHE_PATH.is_file() else {}
+    force = set(args.force_stage)
+    if args.no_stage_cache:
+        force.add("all")
     stage3_args: list[Any] = ["--boundary-dir", args.boundary_dir.resolve(),
                               "--geocode-cache", args.geocode_cache.resolve()]
     if args.geocode:
@@ -156,26 +339,38 @@ def main() -> int:
 
     try:
         if not args.skip_dependency_install:
-            install_dependencies()
-        stage1 = run_publishing_stage("Stage 1 of 8: raw staging", ETL / "stage1/run_stage1.py", [],
-                                      ROOT / "data/stage1/latest_success.json")
-        runs["stage1"] = str(stage1)
-        stage2 = run_publishing_stage("Stage 2 of 8: normalization", ETL / "stage2/run_stage2.py",
-                                      ["--stage1-run", stage1], ROOT / "data/stage2/latest_success.json")
-        runs["stage2"] = str(stage2)
-        stage3 = run_publishing_stage("Stage 3 of 8: registry and geocoding", ETL / "stage3/run_stage3.py",
-                                      ["--stage2-run", stage2, *stage3_args], ROOT / "data/stage3/latest_success.json")
-        runs["stage3"] = str(stage3)
+            install_dependencies(force=args.force_dependency_install)
+        stage1_args: list[Any] = ["--sources", *STAGE1_SOURCES]
+        stage1 = run_cached_stage("stage1", "Stage 1 of 8: raw staging", ETL / "stage1/run_stage1.py",
+                                  stage1_args, ROOT / "data/stage1/latest_success.json", cache, force,
+                                  raw_snapshot())
+        runs["stage1"] = portable_path(stage1)
+        stage2 = run_cached_stage("stage2", "Stage 2 of 8: normalization", ETL / "stage2/run_stage2.py",
+                                  ["--stage1-run", stage1], ROOT / "data/stage2/latest_success.json",
+                                  cache, force)
+        runs["stage2"] = portable_path(stage2)
+        if not args.skip_boundary_download:
+            boundary_args: list[Any] = ["--directory", args.boundary_dir.resolve()]
+            if args.states:
+                boundary_args.extend(["--states", *args.states])
+            run_step("Preparing Census TIGER 2023 boundaries", ETL / "stage3/prepare_boundaries.py",
+                     boundary_args)
+        stage3 = run_cached_stage("stage3", "Stage 3 of 8: registry and geocoding",
+                                  ETL / "stage3/run_stage3.py", ["--stage2-run", stage2, *stage3_args],
+                                  ROOT / "data/stage3/latest_success.json", cache, force,
+                                  boundary_identity(args.boundary_dir.resolve()))
+        runs["stage3"] = portable_path(stage3)
 
         stage4_args: list[Any] = ["--stage3-run", stage3]
         if args.skip_acs_download:
             stage4_args.append("--skip-download")
-        stage4 = run_publishing_stage("Stage 4 of 8: ACS enrichment", ETL / "acs/run_acs.py", stage4_args,
-                                      ROOT / "data/stage4/latest_success.json")
-        runs["stage4"] = str(stage4)
-        stage5 = run_publishing_stage("Stage 5 of 8: screening features", ETL / "stage5/run_stage5.py",
-                                      ["--stage4-run", stage4], ROOT / "data/stage5/latest_success.json")
-        runs["stage5"] = str(stage5)
+        stage4 = run_cached_stage("stage4", "Stage 4 of 8: ACS enrichment", ETL / "acs/run_acs.py",
+                                  stage4_args, ROOT / "data/stage4/latest_success.json", cache, force)
+        runs["stage4"] = portable_path(stage4)
+        stage5 = run_cached_stage("stage5", "Stage 5 of 8: screening features",
+                                  ETL / "stage5/run_stage5.py", ["--stage4-run", stage4],
+                                  ROOT / "data/stage5/latest_success.json", cache, force)
+        runs["stage5"] = portable_path(stage5)
 
         stage6a_args: list[Any] = [
             "--stage5-run", stage5, "--min-population", args.min_population,
@@ -186,9 +381,10 @@ def main() -> int:
             "--severe-existing-drive-minutes", args.severe_existing_drive_minutes,
             "--severe-min-population", args.severe_min_population,
         ]
-        stage6a = run_publishing_stage("Stage 6A of 8: large-sample screening", ETL / "stage6/run_stage6a.py",
-                                       stage6a_args, ROOT / "data/stage6a/latest_success.json")
-        runs["stage6a"] = str(stage6a)
+        stage6a = run_cached_stage("stage6a", "Stage 6A of 8: large-sample screening",
+                                   ETL / "stage6/run_stage6a.py", stage6a_args,
+                                   ROOT / "data/stage6a/latest_success.json", cache, force)
+        runs["stage6a"] = portable_path(stage6a)
         if not args.states and not args.allow_small_output:
             require_count(stage6a, ("summary", "shortlisted_tracts"), 10_000, "Stage 6A")
 
@@ -203,9 +399,10 @@ def main() -> int:
             "--urban-effective-mph", args.urban_effective_mph,
             "--rural-effective-mph", args.rural_effective_mph, *states_args,
         ]
-        stage6 = run_publishing_stage("Stage 6 of 8: candidate access", ETL / "stage6/run_stage6_fast.py",
-                                      stage6_args, ROOT / "data/stage6/latest_success.json")
-        runs["stage6"] = str(stage6)
+        stage6 = run_cached_stage("stage6", "Stage 6 of 8: candidate access",
+                                  ETL / "stage6/run_stage6_fast.py", stage6_args,
+                                  ROOT / "data/stage6/latest_success.json", cache, force)
+        runs["stage6"] = portable_path(stage6)
         if not args.states and not args.allow_small_output:
             require_count(stage6, ("summary", "candidate_sites"), 20_000, "Stage 6")
 
@@ -217,9 +414,10 @@ def main() -> int:
             "--weight-configuration-fit", args.weight_configuration_fit,
             "--weight-cost-efficiency", args.weight_cost_efficiency, *states_args,
         ]
-        stage7 = run_publishing_stage("Stage 7 of 8: configuration optimization", ETL / "stage7/run_stage7.py",
-                                      stage7_args, ROOT / "data/stage7/latest_success.json")
-        runs["stage7"] = str(stage7)
+        stage7 = run_cached_stage("stage7", "Stage 7 of 8: configuration optimization",
+                                  ETL / "stage7/run_stage7.py", stage7_args,
+                                  ROOT / "data/stage7/latest_success.json", cache, force)
+        runs["stage7"] = portable_path(stage7)
 
         stage8_args: list[Any] = [
             "--stage7-run", stage7, "--source", args.stage8_source,
@@ -229,9 +427,10 @@ def main() -> int:
             "--service-threshold-adjustment", args.service_threshold_adjustment,
             "--max-recommended-services", args.max_recommended_services, *states_args,
         ]
-        stage8 = run_publishing_stage("Stage 8 of 8: final enrichment", ETL / "stage8/run_stage8.py",
-                                      stage8_args, ROOT / "data/stage8/latest_success.json")
-        runs["stage8"] = str(stage8)
+        stage8 = run_cached_stage("stage8", "Stage 8 of 8: final enrichment",
+                                  ETL / "stage8/run_stage8.py", stage8_args,
+                                  ROOT / "data/stage8/latest_success.json", cache, force)
+        runs["stage8"] = portable_path(stage8)
         if not args.states and not args.allow_small_output:
             require_count(stage8, ("source_rows",), 20_000, "Stage 8")
     except subprocess.CalledProcessError as exc:
@@ -247,7 +446,7 @@ def main() -> int:
     write_json(ROOT / "data/etl/latest_success.json", {
         "status": "complete", "started_utc": pipeline_started,
         "completed_utc": datetime.now(timezone.utc).isoformat(),
-        "arguments": vars(args), "runs": runs, "final_run": runs["stage8"],
+        "arguments": portable_value(vars(args)), "runs": runs, "final_run": runs["stage8"],
     })
     print(f"\nETL complete. Stage 8 output: {runs['stage8']}", flush=True)
     return 0
