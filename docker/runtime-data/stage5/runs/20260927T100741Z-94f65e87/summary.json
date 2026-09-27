@@ -1,0 +1,14 @@
+{
+  "county_rows": 3144,
+  "facility_rows": 168598,
+  "located_hospitals": 11859,
+  "notes": [
+    "Stage 5 performs no network calls.",
+    "Distances are straight-line, not travel time.",
+    "Registry facility counts/status inherit Stage 3 limitations.",
+    "screening_need_score is an app/exploration starter, not a validated optimal-siting model."
+  ],
+  "tract_rows": 84415,
+  "tracts_with_nearest_hospital_distance": 84415,
+  "tracts_with_population": 84400
+}

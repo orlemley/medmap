@@ -1,0 +1,18 @@
+{
+  "source_sites": 34319,
+  "hospital_configurations": 5,
+  "candidate_hospital_scenarios": 171595,
+  "unique_sites": 34319,
+  "pareto_optimal_top_sites": 210,
+  "finalists_written": 3000,
+  "routing_refinement_sites": 100,
+  "best_candidate_id": "S7-f69bbdcdb09303b9",
+  "best_site_id": "S6F-5075fa58353d86",
+  "best_configuration_id": "rural_25",
+  "best_overall_score": 0.9468099681994708,
+  "notes": [
+    "Stage 7 ranks site + hospital-configuration scenarios using Stage 6 approximate accessibility features.",
+    "The default overall score is reweightable at API time because component scores are stored separately.",
+    "Precise road-network routing should be run only for routing_refinement_queue.parquet sites, then finalist scores can be refreshed."
+  ]
+}

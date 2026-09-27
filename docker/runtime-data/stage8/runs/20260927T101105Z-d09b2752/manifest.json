@@ -1,0 +1,30 @@
+{
+  "completed_utc": "2026-09-27T10:11:08.277680+00:00",
+  "config": {
+    "distance_model": "stage6_time_consistent_distance_proxy_v1",
+    "max_recommended_services": 8,
+    "max_sites": 0,
+    "model_name": "finalist_service_travel_refinement_v1",
+    "rural_detour_factor": 1.34,
+    "rural_effective_mph": 52.0,
+    "service_model": "service_gap_proxy_v1",
+    "service_threshold_adjustment": 0.0,
+    "source_table": "top-sites",
+    "urban_detour_factor": 1.2,
+    "urban_effective_mph": 29.0,
+    "weight_drive_access": 0.25,
+    "weight_service_fit": 0.2,
+    "weight_stage7": 0.55
+  },
+  "outputs": {
+    "final_candidates": "C:\\Projects\\hackathon\\data\\stage8\\runs\\20260927T101105Z-d09b2752\\final_candidates.parquet",
+    "precise_routing_queue": "C:\\Projects\\hackathon\\data\\stage8\\runs\\20260927T101105Z-d09b2752\\precise_routing_queue.parquet",
+    "service_recommendations": "C:\\Projects\\hackathon\\data\\stage8\\runs\\20260927T101105Z-d09b2752\\service_recommendations.parquet",
+    "travel_access_summary": "C:\\Projects\\hackathon\\data\\stage8\\runs\\20260927T101105Z-d09b2752\\travel_access_summary.parquet"
+  },
+  "source_rows": 34319,
+  "stage7_run": "C:\\Projects\\hackathon\\data\\stage7\\runs\\20260927T101055Z",
+  "started_utc": "2026-09-27T10:11:05.695513+00:00",
+  "states": "all",
+  "status": "complete"
+}

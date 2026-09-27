@@ -1,0 +1,87 @@
+{
+  "distance_model": "stage6_time_consistent_distance_proxy_v1",
+  "routing_note": "routing_refined=false means modeled travel. precise_routing_priority marks sites suitable for later site-local Valhalla refinement without removing other discoverable candidates.",
+  "service_model": "service_gap_proxy_v1",
+  "service_note": "Department recommendations are transparent comparative planning heuristics, not clinical utilization forecasts or claims that a service is medically/financially required.",
+  "services": [
+    {
+      "description": "Emergency access proxy emphasizing isolation, new access, and local need.",
+      "display_name": "Emergency Department",
+      "minimum_beds": 0,
+      "recommendation_threshold": 0.48,
+      "service_id": "emergency"
+    },
+    {
+      "description": "ICU proxy emphasizing population, elderly demand, capacity gap, and access.",
+      "display_name": "Intensive Care Unit",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.55,
+      "service_id": "icu"
+    },
+    {
+      "description": "Surgical-service proxy emphasizing market size, access, and bed-capacity gap.",
+      "display_name": "General Surgery",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.52,
+      "service_id": "general_surgery"
+    },
+    {
+      "description": "Maternity proxy using local youth share, market size, insurance vulnerability, and access.",
+      "display_name": "Maternity / Labor & Delivery",
+      "minimum_beds": 50,
+      "recommendation_threshold": 0.56,
+      "service_id": "maternity"
+    },
+    {
+      "description": "Cardiology proxy emphasizing elderly demand, regional market size, and capacity gap.",
+      "display_name": "Cardiology",
+      "minimum_beds": 100,
+      "recommendation_threshold": 0.58,
+      "service_id": "cardiology"
+    },
+    {
+      "description": "Stroke-service proxy emphasizing elderly demand, isolation, access improvement, and population.",
+      "display_name": "Stroke Capability",
+      "minimum_beds": 50,
+      "recommendation_threshold": 0.56,
+      "service_id": "stroke"
+    },
+    {
+      "description": "Behavioral-health proxy using socioeconomic vulnerability, population, and access.",
+      "display_name": "Behavioral Health",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.52,
+      "service_id": "behavioral_health"
+    },
+    {
+      "description": "Pediatric proxy using local under-18 share, population, vulnerability, and access.",
+      "display_name": "Pediatrics",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.53,
+      "service_id": "pediatrics"
+    },
+    {
+      "description": "Imaging proxy emphasizing population, capacity gap, access, and hospital scale.",
+      "display_name": "Advanced Imaging",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.5,
+      "service_id": "advanced_imaging"
+    },
+    {
+      "description": "Oncology proxy emphasizing regional population, older population, and hospital scale.",
+      "display_name": "Oncology",
+      "minimum_beds": 100,
+      "recommendation_threshold": 0.61,
+      "service_id": "oncology"
+    },
+    {
+      "description": "Dialysis proxy emphasizing older/vulnerable population, isolation, and capacity gap.",
+      "display_name": "Dialysis",
+      "minimum_beds": 25,
+      "recommendation_threshold": 0.55,
+      "service_id": "dialysis"
+    }
+  ],
+  "stage8_model": "finalist_service_travel_refinement_v1",
+  "travel_note": "Stage 8 consumes Stage 6 modeled drive times/catchments and derives drive-distance proxies using the same urban/rural effective-speed family. These are not exact routed miles."
+}

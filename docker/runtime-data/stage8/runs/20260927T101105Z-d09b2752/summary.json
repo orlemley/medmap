@@ -1,0 +1,12 @@
+{
+  "completed_utc": "2026-09-27T10:11:08.277680+00:00",
+  "mean_recommended_services": 1.9562050176287187,
+  "precise_routing_priority_sites": 775,
+  "routing_refined_sites": 0,
+  "service_rows": 377509,
+  "sites": 34319,
+  "source_stage7": "C:\\Projects\\hackathon\\data\\stage7\\runs\\20260927T101055Z",
+  "status": "complete",
+  "top_stage8_score": 0.8714369736958485,
+  "travel_rows": 137276
+}
