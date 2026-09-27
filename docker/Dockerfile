@@ -2,7 +2,8 @@
 #
 # Build from the repo root (the build context must include web/):
 #   docker build -f docker/Dockerfile -t medmap .
-#   docker run --rm -p 8000:8000 medmap          -> http://localhost:8000
+#   docker run --rm -p 8000:8000 -v /path/to/repo/data:/app/data:ro medmap
+#                                                    -> http://localhost:8000
 # Or use docker/docker-compose.yml (see README "Running with Docker").
 #
 # The React site is built in stage 1. At runtime, mount the processed data/

@@ -1,8 +1,8 @@
 # Start MedMap with Docker (Windows PowerShell). Run from anywhere:
 #
-#   ./docker/run-env.ps1          build and start the demo on http://localhost:8000
-#   ./docker/run-env.ps1 -Dev     also start the hot-reload React dev server on :5173
-#   ./docker/run-env.ps1 -Down    stop and remove the containers
+#   ./docker/run-server.ps1          build and start the demo on http://localhost:8000
+#   ./docker/run-server.ps1 -Dev     also start the hot-reload React dev server on :5173
+#   ./docker/run-server.ps1 -Down    stop and remove the containers
 #
 # Needs Docker Desktop running. Press Ctrl+C to stop.
 param(

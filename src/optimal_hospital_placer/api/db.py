@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import duckdb
@@ -27,9 +27,22 @@ def _read_pointer(stage: str) -> tuple[dict[str, Any], Path]:
     info = json.loads(pointer.read_text(encoding="utf-8-sig"))
     if info.get("status") != "complete":
         raise RuntimeError(f"{pointer} does not describe a complete run")
-    run = Path(info["run_directory"]).resolve()
+    declared_run = Path(info["run_directory"])
+    if declared_run.is_dir():
+        run = declared_run.resolve()
+    else:
+        # ETL snapshots are often produced on Windows, while the API container
+        # runs Linux. A pointer such as C:\\repo\\data\\stage8\\runs\\<id>
+        # is not meaningful in Linux, but its run ID is portable. Resolve that
+        # ID against the mounted stage directory instead.
+        raw_run = str(info["run_directory"])
+        run_id = PureWindowsPath(raw_run).name if "\\" in raw_run else Path(raw_run).name
+        run = (pointer.parent / "runs" / run_id).resolve()
     if not run.is_dir():
-        raise RuntimeError(f"{stage} run directory does not exist: {run}")
+        raise RuntimeError(
+            f"{stage} run directory does not exist: {run} "
+            f"(snapshot declared {info['run_directory']!r})"
+        )
     return info, run
 
 

@@ -1,14 +1,9 @@
 #!/bin/sh
 set -e
 
-# install node deps for the react app (kept out of the image build since /app is volume-mounted)
-npm --prefix ./app install
-
-# uncomment if server.py has its own dependencies (flask, etc.)
-# pip3 install -r ./api/requirements.txt
-
-# start the python api in the background
-python3 ./api/server.py &
-
-# start the vite dev server in the foreground — this keeps the container alive
-npm --prefix ./app run dev -- --host 0.0.0.0
+# Legacy convenience entrypoint. The production image uses the equivalent CMD
+# in Dockerfile and serves the compiled Vite app from FastAPI.
+exec python -m uvicorn optimal_hospital_placer.api.main:app \
+  --app-dir /app/src \
+  --host "${HOST:-0.0.0.0}" \
+  --port "${PORT:-8000}"

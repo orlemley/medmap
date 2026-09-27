@@ -13,5 +13,8 @@ Planning Phase
 docker/*.ps1
 *.md
 *.txt
+# The runtime image installs the API from this file. Keep the broad text-file
+# exclusion for generated notes, but allow this required build input.
+!src/optimal_hospital_placer/api/requirements.txt
 *.svg
 **/.env

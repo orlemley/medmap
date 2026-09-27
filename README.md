@@ -142,37 +142,37 @@ each time.
 
 ## Running with Docker
 
-Docker runs the whole demo with nothing else installed: no Python, no Node,
-no data download. Tested with Docker Desktop 29.8 on Windows.
+Docker runs the FastAPI service and compiled Vite frontend with no host Python
+or Node installation. It mounts this checkout's processed `data/` directory,
+so run the ETL first (or obtain a populated `data/` directory from a teammate).
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build     # http://localhost:8000
 docker compose -f docker/docker-compose.yml down           # stop and remove
 ```
 
-Run these from the repo root. On Windows, `./docker/run-env.ps1` does the
+Run these from the repo root. On Windows, `./docker/run-server.ps1` does the
 same (`-Dev` adds the dev server described below; `-Down` stops everything).
-The first build downloads the base images and takes about a minute; after that
-it takes seconds. The container is ready (and marked *healthy*) about 8
-seconds after it starts.
+Docker Desktop must be running before invoking the script.
 
 ### What's in the image
 
-`docker/Dockerfile` builds one self-contained image (~180 MB):
+`docker/Dockerfile` builds one application image:
 
 1. **Stage 1** (Node 24) runs `npm ci` and `npm run build` to build the React
    site from `web/src`.
-2. **Stage 2** (Python 3.13 slim) copies `web/api/*.py`, the data file and
-   the built site. It runs `server.py` as a non-root user, with a health check
-   on `/api/health`.
+2. **Stage 2** (Python 3.12 slim) installs the new API dependencies and copies
+   `src/` plus the built site. It runs Uvicorn/FastAPI as a non-root user, with
+   a health check on `/api/v1/health`.
 
-It uses about 250 MB of RAM. The build context is the repo root, and
-`.dockerignore` keeps `raw/`, `node_modules`, `.git` and so on out of it.
-Without compose:
+The processed Stage 5, 7, and 8 snapshots are not baked into the image;
+Compose mounts `data/` at `/app/data` read-only. The build context is the repo
+root, and `.dockerignore` keeps raw inputs, `node_modules`, and `.git` out.
+Without Compose, mount the data explicitly:
 
 ```bash
 docker build -f docker/Dockerfile -t medmap .
-docker run --rm -p 8000:8000 medmap
+docker run --rm -p 8000:8000 -v /absolute/path/to/repo/data:/app/data:ro medmap
 ```
 
 ### Settings
@@ -184,8 +184,6 @@ Copy `docker/.env.example` to `docker/.env` and change what you need.
 |---|---|---|
 | `MEDMAP_PORT` | `8000` | Port on your computer for the site and API |
 | `WEB_DEV_PORT` | `5173` | Port for the hot-reload dev server |
-| `MEDMAP_CACHE_SIZE` | `6` | Score tables kept in memory (~40 MB each) |
-| `OPTIMIZER_URL` | empty | Where to get scores from; empty = built-in placeholder (see below) |
 
 ### Editing the frontend without installing Node
 
@@ -301,7 +299,7 @@ web/
 ```
 
 Docker files live outside `web/`: `docker/Dockerfile`,
-`docker/docker-compose.yml`, `docker/.env.example`, `docker/run-env.ps1` and
+`docker/docker-compose.yml`, `docker/.env.example`, `docker/run-server.ps1` and
 `.dockerignore`.
 
 **How React and the map connect:** `MapPage` holds all the state (weights,
@@ -739,7 +737,7 @@ all of the ones listed above.
 | `No data found ... medmap_data.json.gz is missing` | Run `git pull`; the file is committed. Or rebuild it (see [Updating the data](#updating-the-data)). |
 | Docker: `port is already allocated` | Something else (maybe `start.cmd`) is using port 8000. Stop it, or set `MEDMAP_PORT=8001` in `docker/.env`. |
 | `docker: command not found` right after installing Docker Desktop | Close and reopen the terminal (or VS Code) so it picks up Docker's new PATH, and make sure Docker Desktop is running. |
-| Docker site says `Can't reach the optimizer service` | `OPTIMIZER_URL` is set but that service isn't running. Start it, or clear `OPTIMIZER_URL` in `docker/.env` to use the placeholder. |
+| Docker container is unhealthy or repeatedly restarts | Run `docker compose -f docker/docker-compose.yml logs medmap`. Confirm `data/stage8/latest_success.json` and its referenced run directory exist, then rebuild with `docker compose -f docker/docker-compose.yml up --build`. |
 | `start.cmd` says Python isn't installed | Install Python 3 from python.org (tick "Add python.exe to PATH") or run `winget install Python.Python.3.12`. |
 | Changes in `web/src/` don't show up at :8000 | The server shows the built copy. Run `npm run build` in `web/`, or use `npm run dev` while editing. |
 | Map area is blank but the sidebar works | Your browser lacks WebGL2 (MapLibre 6 requires it); the map area says so. Use a current Chrome, Edge, Firefox or Safari. |

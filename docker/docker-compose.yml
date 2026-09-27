@@ -10,7 +10,7 @@
 #
 #   docker compose -f docker/docker-compose.yml down
 #
-# On Windows, docker/run-env.ps1 wraps these commands.
+# On Windows, docker/run-server.ps1 wraps these commands.
 # Optional port overrides can go in docker/.env; defaults work without it.
 
 name: medmap
