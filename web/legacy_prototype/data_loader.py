@@ -3,7 +3,7 @@
 Raw CSVs (raw/, ~500 MB, git-ignored) are joined into a few small tables.
 Those tables are saved as one compact file, medmap_data.json.gz, which is
 committed, so the server (and Docker image) can run without raw/. Rebuild it
-with `python web/api/build_data.py` after re-downloading raw data.
+with `python web/legacy_prototype/build_data.py` after re-downloading raw data.
 
 Standard library only, so the demo runs on a bare Python install.
 Every join and fallback made here is documented in the project README
@@ -137,7 +137,7 @@ class Dataset:
             payload = json.load(f)
         if payload.get("version") != BUNDLE_VERSION:
             raise ValueError(f"{path} is bundle version {payload.get('version')}, expected {BUNDLE_VERSION}. "
-                             "Rebuild it with `python web/api/build_data.py`.")
+                             "Rebuild it with `python web/legacy_prototype/build_data.py`.")
         self = cls.__new__(cls)
         self.raw_dir = None
         columns = payload["tracts"]

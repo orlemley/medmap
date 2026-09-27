@@ -1,13 +1,16 @@
 Project: MedMap — a hospital-placement recommendation tool for TigerHacks26.
 
+ARCHIVED HISTORICAL PROMPT — this describes the retired frontend prototype,
+not the current FastAPI + Stage 8 application.
+
 CONTEXT
 map_prompt.txt produced a working map, and prompt2.text moved the frontend
 to React: web/ is a React 19 + Vite app (web/src/) with Home / Map / About
 routes; the map is the <MedMap> component (web/src/components/map/MedMap.jsx)
-wrapping MapLibre GL JS 6. A stdlib-only Python server (web/api/server.py)
+wrapping MapLibre GL JS 6. A stdlib-only Python server (web/legacy_prototype/server.py)
 serves the built site (web/dist/) plus /api/hospitals, /api/population,
 /api/states and /api/optimize, backed by a PLACEHOLDER scorer
-(web/api/placeholder_optimizer.py). README.md documents the data, the exact
+(web/legacy_prototype/placeholder_optimizer.py). README.md documents the data, the exact
 placeholder formula, every data assumption, and the dev workflow. Read
 README.md first.
 
@@ -61,7 +64,7 @@ PART 3 — Hospital burden (the "lift burden off other hospitals" goal)
 PART 4 — Better hospital locations
 - Geocode hospital street addresses with the free U.S. Census Geocoder
   batch API (https://geocoding.geo.census.gov/geocoder/), run once by a
-  script in web/api/ that writes a cached CSV (id, lat, lon, match quality)
+  script in web/legacy_prototype/ that writes a cached CSV (id, lat, lon, match quality)
   next to the raw data. The server uses it when present and falls back to
   the current ZIP-centroid logic otherwise. Report the match rate and the
   median distance moved versus ZIP centroids.

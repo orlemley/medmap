@@ -196,3 +196,30 @@ Deciding where healthcare infrastructure should go is inherently a multi-objecti
 MedMap is designed around that tension.
 
 Instead of hiding those tradeoffs inside one fixed ranking, it computes them separately and gives users an interactive way to explore them—while still grounding every recommendation in the same underlying nationwide healthcare-access model.
+
+## Installation
+
+### A. Run with Docker
+
+From the repo root:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build   # build and start
+docker compose -f docker/docker-compose.yml down         # stop and remove the containers
+```
+
+The site is at **<http://localhost:8000/>**. The map is at `/map`.
+
+### B. Share a public link with a Cloudflare tunnel
+
+While MedMap is running on port 8000, run these in a second terminal:
+
+```powershell
+winget install --id Cloudflare.cloudflared         # install cloudflared (one time)
+cloudflared --version                              # check that the install worked
+cloudflared tunnel --url http://localhost:8000/    # open the tunnel
+```
+
+The last command prints a public `https://<random-words>.trycloudflare.com`
+link that anyone can open. No Cloudflare account is needed. The link works only
+while that terminal stays open. Press `Ctrl+C` to close the tunnel.

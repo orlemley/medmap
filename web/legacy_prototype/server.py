@@ -1,12 +1,12 @@
 """MedMap server: the JSON API and the built React site on one port.
 
-    python web/api/server.py                 # http://127.0.0.1:8000, this computer only
-    python web/api/server.py --open          # ...and open it in the browser
-    python web/api/server.py --host 0.0.0.0  # also reachable from other devices on the network
-    python web/api/server.py --raw path/to/raw   # use raw CSVs instead of the data bundle
+    python web/legacy_prototype/server.py                 # http://127.0.0.1:8000, this computer only
+    python web/legacy_prototype/server.py --open          # ...and open it in the browser
+    python web/legacy_prototype/server.py --host 0.0.0.0  # also reachable from other devices on the network
+    python web/legacy_prototype/server.py --raw path/to/raw   # use raw CSVs instead of the data bundle
 
 HOST and PORT environment variables set the defaults (hosting platforms and
-the Docker image use them). Data comes from web/api/medmap_data.json.gz
+the Docker image use them). Data comes from web/legacy_prototype/medmap_data.json.gz
 unless --raw is given. Scoring uses placeholder_optimizer.py unless the
 OPTIMIZER_URL environment variable points at another service (see
 remote_optimizer.py), e.g. the real algorithm running in its own container.

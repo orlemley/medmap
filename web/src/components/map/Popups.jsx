@@ -1,7 +1,7 @@
 import { fmt, points } from "../../lib/format.js";
 import { scoreBreakdown, topReasons } from "../../lib/weights.js";
 
-// How each hospital's position was found (web/api/geocode_hospitals.py,
+// How each hospital's position was found (Stage 3 ETL; see
 // docs/hospital-locations.md). Approximate ones are drawn as hollow rings.
 const LOCATION_NOTES = {
   address: { text: "Located from its street address (U.S. Census Geocoder)." },

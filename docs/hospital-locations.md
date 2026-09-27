@@ -10,10 +10,11 @@ The canonical implementation is the Stage 3 ETL in
 `src/optimal_hospital_placer/etl/stage3/`. It preserves the broad CMS facility
 registry, uses Census matches first, and applies conservative tie,
 alternate-address, and OpenStreetMap fallbacks only to unresolved hospitals.
-`web/api/geocode_hospitals.py` is the original frontend-prototype implementation
-and remains useful as provenance for the fallback methodology.
-The results are stored in `web/api/medmap_data.json.gz`, which is committed,
-so nobody else needs to run it.
+`web/legacy_prototype/geocode_hospitals.py` is an archived frontend-prototype
+implementation retained only as provenance for the fallback methodology. It is
+not the application API. The production API is in
+`src/optimal_hospital_placer/api/`, and the production ETL is in
+`src/optimal_hospital_placer/etl/`.
 
 ## The problem this fixes
 
@@ -129,11 +130,14 @@ full run: "Whittier Hospital Medical Center" had matched "PIH Health Hospital
 Distances used for scoring (how far each area is from the nearest hospital)
 use these locations, so they're more accurate than before too.
 
-## Rebuilding
+## Rebuilding the archived prototype bundle
+
+These commands reproduce the historical frontend-prototype bundle only. They
+are not part of the current application or deployment workflow.
 
 ```bash
-python web/api/build_data.py            # looks up anything not cached yet
-python web/api/build_data.py --offline  # cached answers only, no network
+python web/legacy_prototype/build_data.py            # looks up anything not cached yet
+python web/legacy_prototype/build_data.py --offline  # cached answers only, no network
 ```
 
 Answers are cached in `raw/_geocode_cache/` (git-ignored, like `raw/`):

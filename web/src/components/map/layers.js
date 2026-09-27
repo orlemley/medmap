@@ -4,8 +4,8 @@ import { EMPTY_FC, MARKER_COLORS, SATELLITE_BORDER } from "../../lib/constants.j
 // Highlighting reads feature-state, so hover/selection never changes layer paint.
 const isSelected = ["boolean", ["feature-state", "selected"], false];
 const isHovered = ["boolean", ["feature-state", "hover"], false];
-// Hospitals whose address couldn't be matched to a map (web/api/geocode_hospitals.py)
-// sit at their ZIP code's centre, so they're drawn as hollow rings.
+// Hospitals whose address couldn't be matched by the Stage 3 ETL sit at their
+// ZIP code's centre, so they're drawn as hollow rings.
 const isApproximate = ["in", ["get", "loc_quality"], ["literal", ["zcta", "zcta_centroid", "zip3", "county", "approximate"]]];
 
 export function heatmapWeight(mode, radius) {

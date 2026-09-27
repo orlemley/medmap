@@ -1,8 +1,8 @@
-"""Rebuild web/api/medmap_data.json.gz from the raw CSVs.
+"""Rebuild web/legacy_prototype/medmap_data.json.gz from the raw CSVs.
 
-    python web/api/build_data.py                  # reads <repo>/raw
-    python web/api/build_data.py --raw D:/raw
-    python web/api/build_data.py --offline        # reuse cached hospital locations only
+    python web/legacy_prototype/build_data.py                  # reads <repo>/raw
+    python web/legacy_prototype/build_data.py --raw D:/raw
+    python web/legacy_prototype/build_data.py --offline        # reuse cached hospital locations only
 
 Hospital locations are looked up online (Census Geocoder, then OpenStreetMap;
 see docs/hospital-locations.md). Answers are cached in raw/_geocode_cache/,
