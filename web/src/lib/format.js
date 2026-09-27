@@ -1,3 +1,5 @@
+import { MARKER_COLORS } from "./constants.js";
+
 export const fmt = (n) => Number(n).toLocaleString("en-US");
 
 export function clampNumber(raw, min, max, fallback, decimals = 0) {
@@ -7,13 +9,17 @@ export function clampNumber(raw, min, max, fallback, decimals = 0) {
   return Math.round(Math.min(max, Math.max(min, n)) * f) / f;
 }
 
+const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
 /** Same ramp as the candidate circle-color expression on the map. */
-export function scoreColor(score) {
-  const a = [0x93, 0xc5, 0xfd];
-  const b = [0x1e, 0x3a, 0x8a];
+export function scoreColor(score, theme = "light") {
+  const { candidateLow, candidateHigh } = MARKER_COLORS[theme];
+  const a = rgb(candidateLow);
+  const b = rgb(candidateHigh);
   const t = Math.min(1, Math.max(0, score));
   return "rgb(" + a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",") + ")";
 }
 
-/** Dark text on light ramp colours, white on dark ones. */
-export const scoreTextColor = (score) => (score < 0.45 ? "#0f172a" : "#ffffff");
+/** Dark text on pale ramp colours, white on strong ones. */
+export const scoreTextColor = (score, theme = "light") =>
+  score < MARKER_COLORS[theme].darkTextBelow ? "#0f172a" : "#ffffff";

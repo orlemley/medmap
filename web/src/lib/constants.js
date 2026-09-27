@@ -14,9 +14,39 @@ export const SITES = { min: 1, max: 25, default: 5 };
 export const DEBOUNCE_MS = 300;
 export const US_BOUNDS = [[-125, 24.4], [-66.9, 49.5]];
 
-export const HOSPITAL_COLOR = "#dc2626";
-export const CANDIDATE_LOW = "#93c5fd";
-export const CANDIDATE_HIGH = "#1e3a8a";
+// Map marker colours per theme. Keep in sync with --hospital and
+// --candidate-low/high in styles/site.css (used by the legend).
+export const MARKER_COLORS = {
+  light: {
+    hospital: "#dc2626",
+    hospitalHover: "#f87171",
+    hospitalSelected: "#7f1d1d",
+    selectedStroke: "#0f172a",
+    candidateLow: "#93c5fd",
+    candidateHigh: "#1e3a8a",
+    // Scores below this get dark rank numbers (the ramp is pale there).
+    darkTextBelow: 0.45,
+    ring: "#2563eb",
+    border: "#64748b",
+  },
+  dark: {
+    hospital: "#ef4444",
+    hospitalHover: "#fca5a5",
+    hospitalSelected: "#fecaca",
+    selectedStroke: "#f8fafc",
+    candidateLow: "#bfdbfe",
+    candidateHigh: "#2563eb",
+    darkTextBelow: 0.6,
+    ring: "#60a5fa",
+    border: "#94a3b8",
+  },
+};
+
+// State borders over satellite photos, in either theme.
+export const SATELLITE_BORDER = "#f8fafc";
+
+// Text size steps for the map page (sidebar, legend, popups).
+export const TEXT_SCALES = [0.9, 1, 1.15, 1.3, 1.5];
 
 export const EMPTY_FC = { type: "FeatureCollection", features: [] };
 

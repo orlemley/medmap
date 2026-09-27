@@ -255,7 +255,8 @@ web/
 ├── src/
 │   ├── main.jsx              Mounts <App/> into index.html's #root
 │   ├── App.jsx               Routes: /  /map  /about (the map page loads on demand)
-│   ├── config.js             API_BASE, basemap style, GitHub link
+│   ├── config.js             API_BASE, light/dark basemap styles, satellite tiles, GitHub link
+│   ├── theme.jsx             Light/dark theme: follows the device, remembers the choice
 │   ├── pages/
 │   │   ├── HomePage.jsx
 │   │   ├── MapPage.jsx       Owns the map page state: settings, data, popups
@@ -308,8 +309,18 @@ frontend.
 **Libraries:** [React 19](https://react.dev/),
 [React Router 8](https://reactrouter.com/),
 [MapLibre GL JS 6.11.2](https://maplibre.org/) (bundled from npm, not a CDN),
-[Vite 8](https://vite.dev/), and [OpenFreeMap](https://openfreemap.org/)
-"positron" tiles. None needs an API key.
+[Vite 8](https://vite.dev/), [OpenFreeMap](https://openfreemap.org/)
+"positron" (light) and "dark" street maps, and USGS
+[National Map](https://www.usgs.gov/programs/national-geospatial-program/national-map)
+aerial imagery (public domain). None needs an API key.
+
+**Map styles and borders:** switching between light and dark swaps the whole
+MapLibre style, which drops MedMap's layers. `MedMap.jsx` re-adds them when the
+new style loads (see `addSourcesAndLayers` in `components/map/layers.js`). The
+basemap styles' own border layers are removed as each style loads and replaced
+by ours. The light style's border layer has a filter MapLibre 6 rejects, which
+silently discards all border data in the tiles, so without this no state
+borders would appear at all.
 
 ---
 
@@ -362,6 +373,12 @@ Notes:
 
 | Control | What it does |
 |---|---|
+| **Light / dark** (sun/moon button in the top bar) | Switches the whole site, including the map, between light and dark. Until you pick one, it follows your device's setting. Your choice is remembered in this browser. |
+| **Map / Satellite** (top right of the map) | *Map* shows the street map (light or dark, following the theme). *Satellite* shows public-domain aerial photos from USGS, with place names on top. The photos cover the U.S. and are sharp up to about neighborhood zoom; closer than that they're enlarged. |
+| **State borders** | Always drawn: grey lines on the street map, white on satellite photos, plus country borders. |
+| **Text size** (A− / A+ at the top of the sidebar) | Makes the sidebar, legend and map popups smaller or larger (90–150%). Remembered in this browser. |
+| **Reset view** (house button under the zoom buttons) | Flies back to the starting view: the selected state, or the whole U.S., facing north with no tilt. |
+| **Compass** (under the zoom buttons) | Shows when the map is rotated (right-drag or Ctrl+drag) or tilted. Click it to face north again. |
 | **Region** | Limits candidate sites to one state and zooms there. Hospitals and population outside the state are still used when scoring, so a site near a border counts people across it. |
 | **Weights** (4 sliders, 0–1) | How much population, distance, shortage bonus and cost matter. Results update 300 ms after you stop dragging (debounced), so dragging doesn't flood the API. The total turns amber if it's far from 1. **Make total 1** rescales the weights, and **Reset** restores the defaults. The server rescales weights anyway, so the total only needs to be roughly 1. |
 | **Coverage radius** | Slider (5–100 mi) or number box. This is the distance at which a hospital counts as "reachable". It's used in scoring, drawn as the dashed rings, and used by the "beyond radius" heatmap. |
@@ -647,9 +664,11 @@ current `raw/` snapshot.
   them on first use (a few seconds per new radius nationwide).
 - Browsers need **WebGL2** (MapLibre 6 requirement), which all current
   browsers support.
-- In the browser console, the OpenFreeMap basemap logs two harmless warnings
-  about its highway-shield layers. They come from the basemap style, not
-  MedMap.
+- In the browser console, the OpenFreeMap basemaps log a few harmless
+  warnings about highway-shield layers and missing sprite images (`circle-11`,
+  `wood-pattern`). They come from the basemap styles, not MedMap.
+- Satellite photos come from a U.S. government server, which can be slower
+  than the street map. Past about zoom 16 the photos are enlarged, not sharper.
 
 ---
 

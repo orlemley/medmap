@@ -6,8 +6,20 @@
   <meta name="description" content="MedMap recommends where to build a new hospital to reduce driving distance to care.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>MedMap</title>
-  <script type="module" crossorigin src="/assets/index-uQ6_wZbH.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-Dxhe7RbY.css">
+  <script>
+    // Apply the saved (or device) theme before anything draws, so dark mode
+    // doesn't flash white on load. Same rules as src/theme.jsx.
+    (function () {
+      var theme = null;
+      try { theme = localStorage.getItem("medmap-theme"); } catch (e) {}
+      if (theme !== "light" && theme !== "dark") {
+        theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      }
+      document.documentElement.dataset.theme = theme;
+    })();
+  </script>
+  <script type="module" crossorigin src="/assets/index-CcF_VwlP.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CerFD5nO.css">
 </head>
 <body>
   <!-- React replaces everything inside #root once the app starts. -->

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 /** Bottom-right legend, as on the whiteboard sketch: collapsible and closable. */
-export default function Legend({ heatmapMode }) {
+export default function Legend({ heatmapMode, basemap }) {
   const startCollapsed = typeof window !== "undefined" && window.matchMedia("(max-width: 800px)").matches;
   const [expanded, setExpanded] = useState(!startCollapsed);
   const [closed, setClosed] = useState(false);
@@ -40,11 +40,13 @@ export default function Legend({ heatmapMode }) {
             <span className="ramp-labels"><span>low</span><span>high</span></span>
           </div>
           <div className="legend-row"><span className="swatch swatch-ring" />Coverage radius</div>
+          <div className="legend-row"><span className="swatch swatch-border" />State border</div>
           <div className="legend-scale">
             <span>{heatmapMode === "uncovered" ? "Population beyond radius" : "Population"}</span>
             <span className="ramp ramp-heatmap" />
             <span className="ramp-labels"><span>fewer</span><span>more</span></span>
           </div>
+          {basemap === "satellite" && <p className="legend-note">Photos: USGS, up to neighborhood detail</p>}
         </div>
       )}
     </section>

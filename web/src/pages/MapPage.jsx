@@ -12,13 +12,15 @@ import {
   RegionSelect,
   ResultsList,
   StatusBar,
+  TextSizeControl,
   WeightSliders,
 } from "../components/sidebar/Controls.jsx";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { useOptimize } from "../hooks/useOptimize.js";
 import { ApiUnavailable, getHospitals, getPopulation, getStates } from "../lib/api.js";
-import { DEBOUNCE_MS, DEFAULT_WEIGHTS, RADIUS, SITES, STATE_NAMES, US_BOUNDS, WEIGHTS } from "../lib/constants.js";
+import { DEBOUNCE_MS, DEFAULT_WEIGHTS, RADIUS, SITES, STATE_NAMES, TEXT_SCALES, US_BOUNDS, WEIGHTS } from "../lib/constants.js";
 import { clampNumber, fmt } from "../lib/format.js";
+import { useTheme } from "../theme.jsx";
 
 /** Settings come from the URL, so a copied link reproduces the view. */
 function readUrl(searchParams) {
@@ -53,6 +55,17 @@ function ApiHelp({ error }) {
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
 
+// Text size for the sidebar, legend and popups, remembered per browser.
+const TEXT_SCALE_KEY = "medmap-text-scale";
+function readTextScale() {
+  try {
+    const value = Number(localStorage.getItem(TEXT_SCALE_KEY));
+    return TEXT_SCALES.includes(value) ? value : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export default function MapPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [initial] = useState(() => readUrl(searchParams));
@@ -66,6 +79,20 @@ export default function MapPage() {
   const [heatmapMode, setHeatmapMode] = useState("all");
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => !isPhone());
+  const [basemap, setBasemap] = useState("streets"); // or "satellite"
+  const [textScale, setTextScale] = useState(readTextScale);
+  const { theme } = useTheme();
+
+  const changeTextScale = (step) => {
+    const i = TEXT_SCALES.indexOf(textScale) + step;
+    if (i < 0 || i >= TEXT_SCALES.length) return;
+    setTextScale(TEXT_SCALES[i]);
+    try {
+      localStorage.setItem(TEXT_SCALE_KEY, String(TEXT_SCALES[i]));
+    } catch {
+      // still applies for this visit
+    }
+  };
 
   // --- Data from the API
   const [states, setStates] = useState([]);
@@ -122,13 +149,14 @@ export default function MapPage() {
     setHoveredCandidate(null);
   }, [optimize.candidates]);
 
-  // Zoom to the chosen state (or the lower 48).
-  useEffect(() => {
-    if (!states.length) return;
-    const s = states.find((x) => x.state === region);
-    if (s) mapApi.current?.fitBounds([[s.bbox[0], s.bbox[1]], [s.bbox[2], s.bbox[3]]], { padding: 40, maxZoom: 9 });
-    else mapApi.current?.fitBounds(US_BOUNDS, { padding: 20 });
-  }, [region, states]);
+  // The map's starting view: the chosen state, or the lower 48. The map flies
+  // there when this changes, and its Reset view button returns here.
+  const regionInfo = states.find((x) => x.state === region);
+  const homeView = useMemo(() => {
+    if (!regionInfo) return { bounds: US_BOUNDS, padding: 20, label: "the U.S." };
+    const [w, south, e, n] = regionInfo.bbox;
+    return { bounds: [[w, south], [e, n]], padding: 40, maxZoom: 9, label: STATE_NAMES[regionInfo.state] || regionInfo.state };
+  }, [regionInfo]);
 
   // Population is ~1 MB, so only fetch it the first time the heatmap is shown.
   useEffect(() => {
@@ -249,7 +277,8 @@ export default function MapPage() {
   }
 
   return (
-    <div className="map-layout">
+    // --text-scale sizes the sidebar, legend and popup text (styles/map.css).
+    <div className="map-layout" style={{ "--text-scale": textScale }}>
       <title>MedMap: Map</title>
       <div className="map-wrap">
         <MedMap
@@ -262,6 +291,9 @@ export default function MapPage() {
           layers={layers}
           heatmapMode={heatmapMode}
           hospitalTypes={visibleTypes}
+          homeView={homeView}
+          theme={theme}
+          basemap={basemap}
           selected={selected}
           hoveredCandidate={hoveredCandidate}
           popup={popupView}
@@ -270,14 +302,31 @@ export default function MapPage() {
           onCandidateHover={setHoveredCandidate}
           onPopupClose={closePopup}
         />
-        <button
-          className="map-button heatmap-button"
-          type="button"
-          aria-pressed={layers.heatmap}
-          onClick={() => toggleLayer("heatmap")}
-        >
-          <span className="heatmap-dot" aria-hidden="true" /> Heatmap
-        </button>
+        {/* Top-right toolbar, as on the whiteboard sketch */}
+        <div className="map-toolbar">
+          <div className="segmented" role="group" aria-label="Map style">
+            {[["streets", "Map"], ["satellite", "Satellite"]].map(([value, label]) => (
+              <button
+                key={value}
+                className="map-button"
+                type="button"
+                data-basemap={value}
+                aria-pressed={basemap === value}
+                onClick={() => setBasemap(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            className="map-button heatmap-button"
+            type="button"
+            aria-pressed={layers.heatmap}
+            onClick={() => toggleLayer("heatmap")}
+          >
+            <span className="heatmap-dot" aria-hidden="true" /> Heatmap
+          </button>
+        </div>
         <button
           className="map-button sidebar-toggle"
           id="sidebar-toggle"
@@ -288,13 +337,22 @@ export default function MapPage() {
         >
           Controls
         </button>
-        <Legend heatmapMode={heatmapMode} />
+        <Legend heatmapMode={heatmapMode} basemap={basemap} />
       </div>
 
       <aside className={sidebarOpen ? "sidebar" : "sidebar closed"} id="sidebar" aria-label="Controls">
-        <button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>
-          Close controls
-        </button>
+        <div className="sidebar-top">
+          <TextSizeControl
+            scale={textScale}
+            canSmaller={textScale > TEXT_SCALES[0]}
+            canLarger={textScale < TEXT_SCALES[TEXT_SCALES.length - 1]}
+            onSmaller={() => changeTextScale(-1)}
+            onLarger={() => changeTextScale(1)}
+          />
+          <button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>
+            Close
+          </button>
+        </div>
         <StatusBar kind={status.kind}>{status.text}</StatusBar>
 
         <Panel title="Region">
@@ -337,6 +395,7 @@ export default function MapPage() {
 
         <Panel title="Recommended sites">
           <ResultsList
+            theme={theme}
             candidates={optimize.candidates}
             activeId={hoveredCandidate}
             onHover={setHoveredCandidate}
