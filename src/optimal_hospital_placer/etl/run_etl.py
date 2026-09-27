@@ -16,6 +16,16 @@ from typing import Any
 
 ETL = Path(__file__).resolve().parent
 ROOT = ETL.parents[2]
+REQUIREMENTS = [
+    ETL / "stage1/requirements.txt",
+    ETL / "stage2/requirements.txt",
+    ETL / "stage3/requirements.txt",
+    ETL / "acs/requirements.txt",
+    ETL / "stage5/requirements.txt",
+    ETL / "stage6/requirements.txt",
+    ETL / "stage7/requirements.txt",
+    ETL / "stage8/requirements.txt",
+]
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -25,6 +35,26 @@ def read_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, default=str), encoding="utf-8")
+
+
+def install_dependencies() -> None:
+    """Resolve every stage's declared requirements into this interpreter."""
+    missing = [path for path in REQUIREMENTS if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"Missing ETL requirement files: {missing}")
+    pip_check = subprocess.run(
+        [sys.executable, "-m", "pip", "--version"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    if pip_check.returncode:
+        print("pip is missing; bootstrapping it with ensurepip", flush=True)
+        subprocess.run([sys.executable, "-m", "ensurepip", "--upgrade"], check=True)
+    command = [sys.executable, "-m", "pip", "install"]
+    for path in REQUIREMENTS:
+        command.extend(["--requirement", str(path)])
+    print("\n=== Preparing Python dependencies ===", flush=True)
+    print("Command:", subprocess.list2cmdline(command), flush=True)
+    subprocess.run(command, check=True)
 
 
 def run_publishing_stage(label: str, script: Path, arguments: list[Any], pointer: Path) -> Path:
@@ -66,6 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--geocode-cache", type=Path, default=ROOT / "data/reference/geocode_cache")
     parser.add_argument("--skip-acs-download", action="store_true",
                         help="Require existing ACS downloads instead of downloading missing files")
+    parser.add_argument("--skip-dependency-install", action="store_true",
+                        help="Do not run pip; require the current interpreter to be pre-provisioned")
     parser.add_argument("--allow-small-output", action="store_true",
                         help="Disable nationwide sample-size guards (state-restricted runs disable them automatically)")
 
@@ -123,6 +155,8 @@ def main() -> int:
     states_args: list[Any] = ["--states", *args.states] if args.states else []
 
     try:
+        if not args.skip_dependency_install:
+            install_dependencies()
         stage1 = run_publishing_stage("Stage 1 of 8: raw staging", ETL / "stage1/run_stage1.py", [],
                                       ROOT / "data/stage1/latest_success.json")
         runs["stage1"] = str(stage1)

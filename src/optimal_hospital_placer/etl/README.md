@@ -1,9 +1,11 @@
 # Run the complete ETL pipeline (Stages 1–8)
 
-Requires Python 3.10+, the dependencies in each stage's `requirements.txt`,
-existing raw downloads in `data/raw`, and prepared TIGER boundaries (see
-[stage 3 instructions](stage3/README.md)). Install the ACS dependencies in
-`acs/requirements.txt` too. The runner downloads missing ACS files during stage 4;
+Requires Python 3.10+, existing raw downloads in `data/raw`, and prepared TIGER boundaries (see
+[stage 3 instructions](stage3/README.md)). By default, the runner first asks the active Python
+interpreter's pip to resolve and install every stage's `requirements.txt` in one
+transaction. Use a project virtual environment so these packages stay isolated;
+`--skip-dependency-install` opts out for an already provisioned or offline environment.
+The runner downloads missing ACS files during stage 4;
 other raw inputs and boundaries must already be prepared. Use
 `--skip-acs-download` to require cached ACS inputs instead.
 
