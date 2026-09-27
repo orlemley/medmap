@@ -1,661 +1,678 @@
 from __future__ import annotations
 
 import json
-import math
-import os
-from typing import Any, Literal
+import time
+from pathlib import Path
+from typing import Any
 
-import numpy as np
-import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from shapely import wkb
-from shapely.geometry import mapping
 
-from .db import connect, stage5_paths
+from .db import connect, paths
+from .query import ALLOWED_SERVICES, candidate_where, default_limit_for_zoom, grid_cell_degrees
+from .schemas import OptimizeRequest
+from .states import FIPS_TO_ABBR, STATE_NAMES, normalize_state
+from .utils import candidate_feature, feature_collection, parse_bbox, record, records, scalar, state_fields
 
-
-API_PREFIX = "/api/v1"
 
 app = FastAPI(
     title="Optimal Hospital Placer API",
     version="1.0.0",
     description=(
-        "REST API over the final Stage 5 hospital-siting analytical dataset. "
-        "DuckDB queries GeoParquet/Parquet and map endpoints return GeoJSON for MapLibre GL JS."
+        "Read-only analytical API over the final Stage 8 Parquet snapshot. "
+        "DuckDB performs viewport filtering and interactive re-ranking; expensive ETL is never run per request."
     ),
 )
 
-# Development default. Set FRONTEND_ORIGIN in production, e.g.
-# FRONTEND_ORIGIN=https://your-app.example.com
-frontend_origins = [x.strip() for x in os.getenv(
-    "FRONTEND_ORIGIN",
-    "http://localhost:5173,http://127.0.0.1:5173"
-).split(",") if x.strip()]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=frontend_origins,
-    allow_credentials=True,
-    allow_methods=["GET"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
+API = "/api/v1"
 
-# ----------------------------- helpers -------------------------------------
 
-def scalar(value: Any) -> Any:
-    """Convert pandas/numpy values into JSON-safe Python scalars."""
-    if value is None:
+def _load_json(path: Path | None) -> dict[str, Any] | None:
+    if path is None or not Path(path).exists():
         return None
-    if isinstance(value, (np.generic,)):
-        value = value.item()
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        pass
-    return value
+    return json.loads(Path(path).read_text(encoding="utf-8-sig"))
 
 
-def records(df: pd.DataFrame) -> list[dict[str, Any]]:
-    return [
-        {k: scalar(v) for k, v in row.items()}
-        for row in df.to_dict(orient="records")
-    ]
+def _table_exists(con, name: str) -> bool:
+    return bool(con.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name = ?", [name]
+    ).fetchone()[0])
 
 
-def feature_collection(features: list[dict[str, Any]], **metadata: Any) -> dict[str, Any]:
-    return {
-        "type": "FeatureCollection",
-        "features": features,
-        "metadata": metadata,
+def _candidate_query(
+    *,
+    state: str | None,
+    bbox: str | None,
+    min_score: float | None,
+    min_beds: int | None,
+    max_beds: int | None,
+    services: list[str],
+    require_all_services: bool,
+    routing_refined: bool | None,
+    limit: int,
+    zoom: float | None,
+    diversify: bool,
+    score_expression: str = "stage8_score",
+    score_params: list[Any] | None = None,
+) -> tuple[str, list[Any]]:
+    # Build ordinary row filters first. min_score is applied to query_score in
+    # an outer CTE so custom weighted scores only need to be bound once.
+    where, params = candidate_where(
+        state=state, bbox=bbox, min_score=None, min_beds=min_beds, max_beds=max_beds,
+        services=services, require_all_services=require_all_services,
+        routing_refined=routing_refined, score_expression=score_expression,
+    )
+    score_params = score_params or []
+    cell = grid_cell_degrees(zoom) if diversify else 0.0
+    score_filter = ""
+    outer_params: list[Any] = []
+    if min_score is not None:
+        score_filter = "WHERE query_score >= ?"
+        outer_params.append(float(min_score))
+
+    if cell > 0:
+        sql = f"""
+        WITH scored AS (
+            SELECT *, ({score_expression}) AS query_score
+            FROM final_candidates
+            WHERE {where}
+        ), score_filtered AS (
+            SELECT * FROM scored {score_filter}
+        ), diversified AS (
+            SELECT *,
+                   row_number() OVER (
+                       PARTITION BY floor(longitude / {cell}), floor(latitude / {cell})
+                       ORDER BY query_score DESC NULLS LAST
+                   ) AS cell_rank
+            FROM score_filtered
+        )
+        SELECT * EXCLUDE(cell_rank)
+        FROM diversified
+        WHERE cell_rank <= 2
+        ORDER BY query_score DESC NULLS LAST
+        LIMIT ?
+        """
+    else:
+        sql = f"""
+        WITH scored AS (
+            SELECT *, ({score_expression}) AS query_score
+            FROM final_candidates
+            WHERE {where}
+        )
+        SELECT * FROM scored
+        {score_filter}
+        ORDER BY query_score DESC NULLS LAST
+        LIMIT ?
+        """
+    return sql, list(score_params) + params + outer_params + [limit]
+
+
+def _score_expression(weights: dict[str, float]) -> tuple[str, list[float], dict[str, float]]:
+    allowed = {
+        "access":"access_score",
+        "capacity":"capacity_score",
+        "vulnerability":"vulnerability_score",
+        "configuration_fit":"configuration_fit_score",
+        "cost_efficiency":"cost_efficiency_score",
+        "drive_access":"drive_access_score",
+        "service_fit":"service_fit_score",
     }
+    total = sum(float(weights.get(k, 0)) for k in allowed)
+    if total <= 0:
+        raise HTTPException(status_code=400, detail={"code":"zero_weights","message":"At least one weight must be positive"})
+    normalized = {k: float(weights.get(k, 0)) / total for k in allowed}
+    terms = []
+    params = []
+    for key, col in allowed.items():
+        if normalized[key] <= 0:
+            continue
+        terms.append(f"? * coalesce({col},0)")
+        params.append(normalized[key])
+    return "(" + " + ".join(terms) + ")", params, normalized
 
 
-def geometry_from_wkb(value: Any) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    try:
-        geom = wkb.loads(bytes(value))
-        return mapping(geom)
-    except Exception:
-        return None
-
-
-def parse_bbox(bbox: str) -> tuple[float, float, float, float]:
-    try:
-        west, south, east, north = [float(v.strip()) for v in bbox.split(",")]
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="bbox must be west,south,east,north, for example -93,38,-91,40",
-        ) from exc
-    if not (-180 <= west <= 180 and -180 <= east <= 180 and -90 <= south <= 90 and -90 <= north <= 90):
-        raise HTTPException(status_code=400, detail="bbox coordinates are outside valid longitude/latitude ranges")
-    if south >= north:
-        raise HTTPException(status_code=400, detail="bbox south must be less than north")
-    if west >= east:
-        raise HTTPException(status_code=400, detail="This initial API does not support antimeridian-crossing bboxes")
-    return west, south, east, north
-
-
-def api_error(code: str, message: str, status_code: int = 400) -> None:
-    raise HTTPException(status_code=status_code, detail={"code": code, "message": message})
-
-
-# ----------------------------- system/meta ---------------------------------
-
-@app.get(f"{API_PREFIX}/health", tags=["system"])
-def health() -> dict[str, Any]:
-    p = stage5_paths()
+def _fetch_candidates(**kwargs) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     con = connect()
     try:
-        con.execute("SELECT 1").fetchone()
+        sql, params = _candidate_query(**kwargs)
+        df = con.execute(sql, params).fetchdf()
+    finally:
+        con.close()
+    features = [
+        candidate_feature(row, rank=i + 1, score=scalar(row.get("query_score")))
+        for i, row in enumerate(df.to_dict(orient="records"))
+    ]
+    return features, {"count":len(features), "truncated":len(features) >= kwargs["limit"]}
+
+
+@app.get(f"{API}/health", tags=["system"])
+def health() -> dict[str, Any]:
+    p = paths()
+    con = connect()
+    try:
+        count = con.execute("SELECT count(*) FROM final_candidates").fetchone()[0]
     finally:
         con.close()
     return {
-        "status": "ok",
-        "api_version": "v1",
-        "dataset_stage": 5,
-        "dataset_run_id": p["run_id"],
+        "status":"ok",
+        "api_version":"v1",
+        "dataset_stage":8,
+        "dataset_run_id":p["stage8_run_id"],
+        "candidate_count":int(count),
     }
 
 
-@app.get(f"{API_PREFIX}/meta", tags=["system"])
+@app.get(f"{API}/meta", tags=["system"])
 def meta() -> dict[str, Any]:
-    p = stage5_paths()
-    dictionary = json.loads(p["feature_dictionary"].read_text(encoding="utf-8-sig"))
+    p = paths()
     return {
-        "api_version": "v1",
-        "dataset_stage": 5,
-        "dataset_run_id": p["run_id"],
-        "map_crs": "EPSG:4326",
-        "percentage_scale": "0_to_100",
-        "score_scale": "0_to_1",
-        "distance_unit": "miles",
-        "map_format": "GeoJSON",
-        "scores": [
-            "screening_need_score",
-            "access_gap_score",
-            "demographic_need_score",
+        "api_version":"v1",
+        "dataset_stage":8,
+        "dataset_run_id":p["stage8_run_id"],
+        "map_crs":"EPSG:4326",
+        "score_scale":"0_to_1",
+        "distance_unit":"miles",
+        "time_unit":"minutes",
+        "map_format":"GeoJSON",
+        "final_candidate_source":"stage8/final_candidates.parquet",
+        "score_components":[
+            "access_score","capacity_score","vulnerability_score","configuration_fit_score",
+            "cost_efficiency_score","drive_access_score","service_fit_score",
         ],
-        "important_notes": [
-            "Nearest-hospital distances are straight-line great-circle distances, not drive times.",
-            "screening_need_score is an exploratory screening score, not a validated final siting model.",
-            "Stage 5 is the application analytical source of truth; frontend code should not read ETL files directly.",
-        ],
-        "feature_dictionary": dictionary,
+        "services":sorted(ALLOWED_SERVICES),
+        "routing_models":{
+            "approximate":"routing_refined=false; modeled travel from the Stage 6/8 approximation",
+            "precise":"routing_refined=true; reserved for road-network-refined rows if added later",
+        },
+        "assumptions":_load_json(p.get("stage8_assumptions")),
     }
 
 
-@app.get(f"{API_PREFIX}/summary", tags=["system"])
+@app.get(f"{API}/summary", tags=["system"])
 def summary() -> dict[str, Any]:
-    p = stage5_paths()
-    stage_summary = json.loads(p["summary"].read_text(encoding="utf-8-sig"))
+    p = paths()
     con = connect()
     try:
         row = con.execute("""
             SELECT
-                (SELECT count(*) FROM tracts) AS tract_count,
-                (SELECT count(*) FROM counties) AS county_count,
-                (SELECT count(*) FROM facilities) AS facility_count,
-                (SELECT count(*) FROM facilities WHERE facility_type = 'hospital') AS hospital_count,
-                (SELECT sum(population) FROM tracts) AS total_population
+                count(*) AS sites,
+                count(DISTINCT state_fips) AS states,
+                sum(CASE WHEN coalesce(routing_refined,false) THEN 1 ELSE 0 END) AS routed,
+                avg(stage8_score) AS mean_score,
+                max(stage8_score) AS max_score,
+                avg(proposed_beds) AS mean_beds,
+                avg(recommended_service_count) AS mean_services
+            FROM final_candidates
         """).fetchone()
     finally:
         con.close()
     return {
-        "tract_count": int(row[0] or 0),
-        "county_count": int(row[1] or 0),
-        "facility_count": int(row[2] or 0),
-        "hospital_count": int(row[3] or 0),
-        "total_population": scalar(row[4]),
-        "stage5": stage_summary,
+        "sites":int(row[0] or 0),
+        "states":int(row[1] or 0),
+        "routing_refined_sites":int(row[2] or 0),
+        "mean_stage8_score":scalar(row[3]),
+        "max_stage8_score":scalar(row[4]),
+        "mean_proposed_beds":scalar(row[5]),
+        "mean_recommended_services":scalar(row[6]),
+        "stage8":_load_json(p.get("stage8_summary")),
+        "stage7":_load_json(p.get("stage7_summary")),
     }
 
 
-@app.get(f"{API_PREFIX}/states", tags=["lookup"])
-def states() -> dict[str, Any]:
+@app.get(f"{API}/states", tags=["lookup"])
+def states_v1() -> dict[str, Any]:
     con = connect()
     try:
         df = con.execute("""
             SELECT
-                substr(tract_geoid, 1, 2) AS state_fips,
-                count(*) AS tract_count,
-                sum(population) AS population,
-                avg(screening_need_score) AS mean_screening_need_score
-            FROM tracts
-            WHERE tract_geoid IS NOT NULL
+                lpad(CAST(state_fips AS VARCHAR), 2, '0') AS state_fips,
+                count(*) AS candidate_count,
+                min(longitude) AS west, min(latitude) AS south,
+                max(longitude) AS east, max(latitude) AS north,
+                max(stage8_score) AS best_score,
+                avg(stage8_score) AS mean_score
+            FROM final_candidates
+            WHERE state_fips IS NOT NULL
             GROUP BY 1
             ORDER BY 1
         """).fetchdf()
     finally:
         con.close()
-    return {"count": len(df), "data": records(df)}
+
+    out = []
+    for row in df.to_dict(orient="records"):
+        s = state_fields(row["state_fips"])
+        s.update({
+            "candidate_count":int(row["candidate_count"]),
+            "bbox":[scalar(row["west"]), scalar(row["south"]), scalar(row["east"]), scalar(row["north"])],
+            "best_score":scalar(row["best_score"]),
+            "mean_score":scalar(row["mean_score"]),
+        })
+        out.append(s)
+    return {"count":len(out), "data":out}
 
 
-# ------------------------------- maps --------------------------------------
-
-@app.get(f"{API_PREFIX}/map/tracts", tags=["map"])
-def map_tracts(
-    bbox: str = Query(..., description="west,south,east,north"),
-    min_population: int = Query(0, ge=0),
-    min_score: float | None = Query(None, ge=0, le=1),
-    limit: int = Query(5000, ge=1, le=10000),
-) -> dict[str, Any]:
-    """GeoJSON tract polygons for the current MapLibre viewport.
-
-    The initial implementation filters by Stage-5 centroid. This is fast and
-    adequate for normal map browsing; vector tiles can replace this endpoint
-    later without changing detail/candidate APIs.
-    """
-    west, south, east, north = parse_bbox(bbox)
-    sql = """
-        SELECT
-            tract_geoid,
-            county_geoid,
-            geometry,
-            population,
-            centroid_longitude,
-            centroid_latitude,
-            existing_hospital_count,
-            distance_to_nearest_hospital_miles,
-            screening_need_score,
-            access_gap_score,
-            demographic_need_score
-        FROM tracts
-        WHERE centroid_longitude BETWEEN ? AND ?
-          AND centroid_latitude BETWEEN ? AND ?
-          AND coalesce(population, 0) >= ?
-    """
-    params: list[Any] = [west, east, south, north, min_population]
-    if min_score is not None:
-        sql += " AND screening_need_score >= ?"
-        params.append(min_score)
-    sql += " ORDER BY screening_need_score DESC NULLS LAST LIMIT ?"
-    params.append(limit)
-
+@app.get(f"{API}/services", tags=["lookup"])
+def services_v1(state: str | None = None) -> dict[str, Any]:
+    where, params = candidate_where(state=state)
     con = connect()
     try:
-        df = con.execute(sql, params).fetchdf()
+        rows = []
+        for service in sorted(ALLOWED_SERVICES):
+            score_col = f"service_{service}_score"
+            rec_col = f"service_{service}_recommended"
+            gap_col = f"service_{service}_gap"
+            row = con.execute(
+                f"""SELECT count(*) FILTER (WHERE coalesce({rec_col},false)),
+                           count(*) FILTER (WHERE coalesce({gap_col},false)),
+                           avg({score_col})
+                    FROM final_candidates WHERE {where}""",
+                params,
+            ).fetchone()
+            rows.append({
+                "service_id":service,
+                "recommended_sites":int(row[0] or 0),
+                "gap_sites":int(row[1] or 0),
+                "mean_score":scalar(row[2]),
+            })
     finally:
         con.close()
+    return {"count":len(rows), "data":rows}
 
-    features = []
-    for row in df.to_dict(orient="records"):
-        geom = geometry_from_wkb(row.pop("geometry", None))
-        if geom is None:
-            continue
-        geoid = str(row.get("tract_geoid"))
-        features.append({
-            "type": "Feature",
-            "id": geoid,
-            "geometry": geom,
-            "properties": {k: scalar(v) for k, v in row.items()},
-        })
+
+@app.get(f"{API}/map/candidates", tags=["map"])
+def map_candidates(
+    bbox: str | None = Query(None, description="west,south,east,north"),
+    state: str | None = None,
+    zoom: float | None = Query(None, ge=0, le=24),
+    limit: int | None = Query(None, ge=1, le=2000),
+    min_score: float | None = Query(None, ge=0, le=1),
+    min_beds: int | None = Query(None, ge=0),
+    max_beds: int | None = Query(None, ge=0),
+    service: list[str] = Query(default=[]),
+    require_all_services: bool = False,
+    routing_refined: bool | None = None,
+    diversify: bool = True,
+) -> dict[str, Any]:
+    actual_limit = limit or default_limit_for_zoom(zoom)
+    features, qmeta = _fetch_candidates(
+        state=state, bbox=bbox, min_score=min_score, min_beds=min_beds, max_beds=max_beds,
+        services=service, require_all_services=require_all_services, routing_refined=routing_refined,
+        limit=actual_limit, zoom=zoom, diversify=diversify,
+        score_expression="stage8_score", score_params=[],
+    )
     return feature_collection(
         features,
-        count=len(features),
-        bbox=[west, south, east, north],
-        truncated=len(df) >= limit,
+        **qmeta,
+        bbox=parse_bbox(bbox),
+        state=state,
+        zoom=zoom,
+        score="stage8_score",
+        diversified=diversify,
     )
 
 
-@app.get(f"{API_PREFIX}/map/counties", tags=["map"])
-def map_counties(
-    bbox: str = Query(..., description="west,south,east,north"),
-    min_population: int = Query(0, ge=0),
-    limit: int = Query(1000, ge=1, le=5000),
-) -> dict[str, Any]:
-    west, south, east, north = parse_bbox(bbox)
+@app.get(f"{API}/candidates/{{site_id}}", tags=["candidate"])
+def candidate_detail(site_id: str, include_children: bool = True) -> dict[str, Any]:
     con = connect()
     try:
-        df = con.execute("""
-            SELECT
-                county_geoid,
-                geometry,
-                population,
-                centroid_longitude,
-                centroid_latitude,
-                existing_hospital_count,
-                known_beds_per_1000_residents,
-                screening_need_score,
-                access_gap_score,
-                demographic_need_score
-            FROM counties
-            WHERE centroid_longitude BETWEEN ? AND ?
-              AND centroid_latitude BETWEEN ? AND ?
-              AND coalesce(population, 0) >= ?
-            ORDER BY screening_need_score DESC NULLS LAST
-            LIMIT ?
-        """, [west, east, south, north, min_population, limit]).fetchdf()
+        df = con.execute("SELECT * FROM final_candidates WHERE CAST(site_id AS VARCHAR) = ? LIMIT 1", [site_id]).fetchdf()
+        if df.empty:
+            raise HTTPException(status_code=404, detail={"code":"candidate_not_found","message":f"No candidate {site_id}"})
+        candidate = record(df.iloc[0].to_dict())
+
+        result: dict[str, Any] = {"candidate":candidate}
+        if include_children:
+            result["services"] = records(con.execute(
+                """SELECT service_id, service_name, service_score, recommendation_threshold,
+                          minimum_beds, recommended, archetype_includes, service_gap,
+                          service_rank_within_site, description
+                   FROM service_recommendations
+                   WHERE CAST(site_id AS VARCHAR) = ?
+                   ORDER BY service_rank_within_site, service_score DESC""",
+                [site_id],
+            ).fetchdf())
+            result["access"] = records(con.execute(
+                """SELECT minutes, modeled_drive_miles, modeled_straightline_radius_miles,
+                          population, newly_accessible_population, existing_hospitals,
+                          existing_beds, travel_time_model, routing_refined
+                   FROM travel_access
+                   WHERE CAST(site_id AS VARCHAR) = ?
+                   ORDER BY minutes""",
+                [site_id],
+            ).fetchdf())
+            if _table_exists(con, "candidate_hospitals"):
+                result["configurations"] = records(con.execute(
+                    """SELECT *
+                       FROM candidate_hospitals
+                       WHERE CAST(site_id AS VARCHAR) = ?
+                       ORDER BY overall_score DESC NULLS LAST""",
+                    [site_id],
+                ).fetchdf())
+        return result
     finally:
         con.close()
 
-    features = []
-    for row in df.to_dict(orient="records"):
-        geom = geometry_from_wkb(row.pop("geometry", None))
-        if geom is None:
-            continue
-        geoid = str(row.get("county_geoid"))
-        features.append({
-            "type": "Feature",
-            "id": geoid,
-            "geometry": geom,
-            "properties": {k: scalar(v) for k, v in row.items()},
-        })
-    return feature_collection(features, count=len(features), bbox=[west, south, east, north])
 
-
-@app.get(f"{API_PREFIX}/map/facilities", tags=["map"])
-def map_facilities(
-    bbox: str = Query(..., description="west,south,east,north"),
-    facility_type: str | None = None,
-    emergency_only: bool = False,
-    limit: int = Query(5000, ge=1, le=10000),
-) -> dict[str, Any]:
-    west, south, east, north = parse_bbox(bbox)
-    sql = """
-        SELECT
-            facility_id,
-            ccn,
-            name,
-            facility_type,
-            ownership,
-            emergency_services,
-            hospital_overall_rating,
-            bed_count,
-            city,
-            state,
-            zip,
-            longitude,
-            latitude,
-            tract_geoid,
-            county_geoid
-        FROM facilities
-        WHERE longitude BETWEEN ? AND ?
-          AND latitude BETWEEN ? AND ?
-    """
-    params: list[Any] = [west, east, south, north]
-    if facility_type:
-        sql += " AND facility_type = ?"
-        params.append(facility_type)
-    if emergency_only:
-        sql += " AND coalesce(emergency_services, false) = true"
-    sql += " LIMIT ?"
-    params.append(limit)
-
+@app.get(f"{API}/candidates/{{site_id}}/services", tags=["candidate"])
+def candidate_services(site_id: str) -> dict[str, Any]:
     con = connect()
     try:
-        df = con.execute(sql, params).fetchdf()
+        df = con.execute(
+            """SELECT service_id, service_name, service_score, recommendation_threshold,
+                      minimum_beds, size_eligible, recommended, archetype_includes,
+                      service_gap, service_rank_within_site, description
+               FROM service_recommendations
+               WHERE CAST(site_id AS VARCHAR) = ?
+               ORDER BY service_rank_within_site, service_score DESC""",
+            [site_id],
+        ).fetchdf()
     finally:
         con.close()
-
-    features = []
-    for row in records(df):
-        lon = row.get("longitude")
-        lat = row.get("latitude")
-        if lon is None or lat is None:
-            continue
-        feature_id = row.get("facility_id") or row.get("ccn")
-        features.append({
-            "type": "Feature",
-            "id": str(feature_id) if feature_id is not None else None,
-            "geometry": {"type": "Point", "coordinates": [lon, lat]},
-            "properties": row,
-        })
-    return feature_collection(features, count=len(features), bbox=[west, south, east, north])
+    return {"site_id":site_id, "count":len(df), "data":records(df)}
 
 
-# ---------------------------- tract detail ---------------------------------
-
-@app.get(f"{API_PREFIX}/tracts/{{tract_geoid}}", tags=["tracts"])
-def tract_detail(tract_geoid: str) -> dict[str, Any]:
-    if not tract_geoid.isdigit() or len(tract_geoid) != 11:
-        api_error("INVALID_TRACT_GEOID", "tract_geoid must be an 11-digit Census tract GEOID")
-
+@app.get(f"{API}/candidates/{{site_id}}/access", tags=["candidate"])
+def candidate_access(site_id: str) -> dict[str, Any]:
     con = connect()
     try:
-        df = con.execute("""
-            SELECT
-                tract_geoid,
-                county_geoid,
-                population,
-                population_age_65_plus,
-                population_age_65_plus_pct,
-                population_under_18,
-                population_under_18_pct,
-                median_household_income,
-                population_below_poverty,
-                poverty_pct,
-                uninsured_population,
-                uninsured_pct,
-                disabled_population,
-                disability_pct,
-                households_no_vehicle,
-                households_no_vehicle_pct,
-                existing_facility_count,
-                existing_hospital_count,
-                existing_hospital_known_beds,
-                existing_hospitals_missing_beds,
-                known_beds_per_1000_residents,
-                mua_coverage_fraction,
-                mup_coverage_fraction,
-                shortage_area_coverage_fraction,
-                centroid_longitude,
-                centroid_latitude,
-                distance_to_nearest_hospital_miles,
-                distance_to_nearest_emergency_hospital_miles,
-                nearby_hospitals_10mi,
-                nearby_hospitals_25mi,
-                nearby_hospitals_50mi,
-                nearby_known_beds_10mi,
-                nearby_known_beds_25mi,
-                nearby_known_beds_50mi,
-                population_need_score,
-                elderly_need_score,
-                poverty_need_score,
-                uninsured_need_score,
-                disability_need_score,
-                transport_need_score,
-                distance_access_need_score,
-                nearby_capacity_need_score,
-                shortage_area_need_score,
-                demographic_need_score,
-                access_gap_score,
-                screening_need_score
-            FROM tracts
-            WHERE tract_geoid = ?
-            LIMIT 1
-        """, [tract_geoid]).fetchdf()
+        df = con.execute(
+            """SELECT minutes, modeled_drive_miles, modeled_straightline_radius_miles,
+                      population, newly_accessible_population, existing_hospitals,
+                      existing_beds, travel_time_model, routing_refined
+               FROM travel_access
+               WHERE CAST(site_id AS VARCHAR) = ?
+               ORDER BY minutes""",
+            [site_id],
+        ).fetchdf()
     finally:
         con.close()
-
-    if df.empty:
-        api_error("TRACT_NOT_FOUND", f"No tract exists with GEOID {tract_geoid}", 404)
-    return records(df)[0]
+    return {"site_id":site_id, "count":len(df), "data":records(df)}
 
 
-# ----------------------------- candidates ----------------------------------
-
-CANDIDATE_SORT_COLUMNS = {
-    "screening_need_score": "screening_need_score",
-    "access_gap_score": "access_gap_score",
-    "demographic_need_score": "demographic_need_score",
-    "population": "population",
-    "nearest_hospital_miles": "distance_to_nearest_hospital_miles",
-    "poverty_pct": "poverty_pct",
-    "uninsured_pct": "uninsured_pct",
-}
-
-
-@app.get(f"{API_PREFIX}/candidates", tags=["candidates"])
-def candidates(
-    state_fips: str | None = Query(None, min_length=2, max_length=2),
-    county_geoid: str | None = Query(None, min_length=5, max_length=5),
-    min_population: int = Query(1000, ge=0),
-    max_existing_hospitals: int | None = Query(None, ge=0),
-    min_distance_to_hospital: float | None = Query(None, ge=0),
-    min_poverty_pct: float | None = Query(None, ge=0, le=100),
-    min_uninsured_pct: float | None = Query(None, ge=0, le=100),
-    min_access_gap_score: float | None = Query(None, ge=0, le=1),
-    min_demographic_need_score: float | None = Query(None, ge=0, le=1),
-    min_screening_need_score: float | None = Query(None, ge=0, le=1),
-    sort: str = "screening_need_score",
-    order: Literal["asc", "desc"] = "desc",
-    limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0),
-) -> dict[str, Any]:
-    sort_column = CANDIDATE_SORT_COLUMNS.get(sort)
-    if not sort_column:
-        api_error("INVALID_SORT", f"sort must be one of: {', '.join(CANDIDATE_SORT_COLUMNS)}")
-
-    where = ["coalesce(population, 0) >= ?"]
-    params: list[Any] = [min_population]
-
-    if state_fips:
-        if not state_fips.isdigit():
-            api_error("INVALID_STATE_FIPS", "state_fips must contain two digits")
-        where.append("substr(tract_geoid, 1, 2) = ?")
-        params.append(state_fips)
-    if county_geoid:
-        if not county_geoid.isdigit():
-            api_error("INVALID_COUNTY_GEOID", "county_geoid must contain five digits")
-        where.append("county_geoid = ?")
-        params.append(county_geoid)
-    if max_existing_hospitals is not None:
-        where.append("coalesce(existing_hospital_count, 0) <= ?")
-        params.append(max_existing_hospitals)
-    if min_distance_to_hospital is not None:
-        where.append("distance_to_nearest_hospital_miles >= ?")
-        params.append(min_distance_to_hospital)
-    if min_poverty_pct is not None:
-        where.append("poverty_pct >= ?")
-        params.append(min_poverty_pct)
-    if min_uninsured_pct is not None:
-        where.append("uninsured_pct >= ?")
-        params.append(min_uninsured_pct)
-    if min_access_gap_score is not None:
-        where.append("access_gap_score >= ?")
-        params.append(min_access_gap_score)
-    if min_demographic_need_score is not None:
-        where.append("demographic_need_score >= ?")
-        params.append(min_demographic_need_score)
-    if min_screening_need_score is not None:
-        where.append("screening_need_score >= ?")
-        params.append(min_screening_need_score)
-
-    where_sql = " AND ".join(where)
-    order_sql = "ASC" if order == "asc" else "DESC"
-
+@app.get(f"{API}/candidates/{{site_id}}/configurations", tags=["candidate"])
+def candidate_configurations(site_id: str) -> dict[str, Any]:
     con = connect()
     try:
-        total = con.execute(f"SELECT count(*) FROM tracts WHERE {where_sql}", params).fetchone()[0]
-        df = con.execute(f"""
-            SELECT
-                tract_geoid,
-                county_geoid,
-                centroid_longitude AS longitude,
-                centroid_latitude AS latitude,
-                population,
-                median_household_income,
-                population_age_65_plus_pct AS age_65_plus_pct,
-                poverty_pct,
-                uninsured_pct,
-                disability_pct,
-                households_no_vehicle_pct AS no_vehicle_pct,
-                existing_hospital_count AS hospital_count,
-                existing_hospital_known_beds AS known_beds,
-                distance_to_nearest_hospital_miles AS nearest_hospital_miles,
-                distance_to_nearest_emergency_hospital_miles AS nearest_emergency_hospital_miles,
-                nearby_hospitals_25mi AS hospitals_within_25mi,
-                nearby_known_beds_25mi AS beds_within_25mi,
-                shortage_area_coverage_fraction,
-                demographic_need_score,
-                access_gap_score,
-                screening_need_score
-            FROM tracts
-            WHERE {where_sql}
-            ORDER BY {sort_column} {order_sql} NULLS LAST, tract_geoid
-            LIMIT ? OFFSET ?
-        """, [*params, limit, offset]).fetchdf()
+        if not _table_exists(con, "candidate_hospitals"):
+            return {"site_id":site_id, "count":0, "data":[], "note":"Stage 7 candidate_hospitals.parquet not available"}
+        df = con.execute(
+            "SELECT * FROM candidate_hospitals WHERE CAST(site_id AS VARCHAR) = ? ORDER BY overall_score DESC NULLS LAST",
+            [site_id],
+        ).fetchdf()
     finally:
         con.close()
+    return {"site_id":site_id, "count":len(df), "data":records(df)}
 
-    data = records(df)
-    for i, item in enumerate(data, start=offset + 1):
-        item["rank"] = i
 
+@app.post(f"{API}/optimize", tags=["optimization"])
+def optimize_post(body: OptimizeRequest) -> dict[str, Any]:
+    expression, score_params, normalized = _score_expression(body.weights.model_dump())
+    t0 = time.perf_counter()
+    features, qmeta = _fetch_candidates(
+        state=body.state, bbox=body.bbox, min_score=body.min_score,
+        min_beds=body.min_beds, max_beds=body.max_beds,
+        services=body.services, require_all_services=body.require_all_services,
+        routing_refined=body.routing_refined, limit=body.limit,
+        zoom=None, diversify=body.diversify,
+        score_expression=expression, score_params=score_params,
+    )
     return {
-        "count": len(data),
-        "total": int(total),
-        "limit": limit,
-        "offset": offset,
-        "sort": sort,
-        "order": order,
-        "filters": {
-            "state_fips": state_fips,
-            "county_geoid": county_geoid,
-            "min_population": min_population,
-            "max_existing_hospitals": max_existing_hospitals,
-            "min_distance_to_hospital": min_distance_to_hospital,
-            "min_poverty_pct": min_poverty_pct,
-            "min_uninsured_pct": min_uninsured_pct,
-            "min_access_gap_score": min_access_gap_score,
-            "min_demographic_need_score": min_demographic_need_score,
-            "min_screening_need_score": min_screening_need_score,
+        "candidates":feature_collection(features),
+        "meta":{
+            **qmeta,
+            "weights":normalized,
+            "compute_ms":round((time.perf_counter()-t0)*1000, 1),
+            "state":body.state,
+            "bbox":parse_bbox(body.bbox),
+            "data_source":"stage8",
         },
-        "data": data,
     }
 
 
-# ------------------------ nearby facilities --------------------------------
-
-@app.get(f"{API_PREFIX}/tracts/{{tract_geoid}}/nearby-facilities", tags=["tracts"])
-def nearby_facilities(
-    tract_geoid: str,
-    radius_miles: float = Query(25, gt=0, le=250),
-    hospital_only: bool = True,
-    limit: int = Query(100, ge=1, le=1000),
+@app.get(f"{API}/map/hospitals", tags=["map"])
+def map_hospitals(
+    bbox: str | None = None,
+    state: str | None = None,
+    emergency_only: bool = False,
+    limit: int = Query(5000, ge=1, le=20000),
 ) -> dict[str, Any]:
-    if not tract_geoid.isdigit() or len(tract_geoid) != 11:
-        api_error("INVALID_TRACT_GEOID", "tract_geoid must be an 11-digit Census tract GEOID")
-
     con = connect()
     try:
-        center = con.execute(
-            "SELECT centroid_longitude, centroid_latitude FROM tracts WHERE tract_geoid = ? LIMIT 1",
-            [tract_geoid],
-        ).fetchone()
-        if center is None:
-            api_error("TRACT_NOT_FOUND", f"No tract exists with GEOID {tract_geoid}", 404)
-        lon, lat = center
+        if not _table_exists(con, "facilities"):
+            raise HTTPException(status_code=503, detail={"code":"stage5_unavailable","message":"Stage 5 facilities are unavailable"})
+        cols = [r[0] for r in con.execute("DESCRIBE facilities").fetchall()]
+        lat_col = next((c for c in ["latitude","lat","facility_latitude"] if c in cols), None)
+        lon_col = next((c for c in ["longitude","lon","facility_longitude"] if c in cols), None)
+        if not lat_col or not lon_col:
+            raise HTTPException(status_code=503, detail={"code":"facility_coordinates_unavailable","message":"Facilities table has no latitude/longitude columns"})
 
-        # Great-circle (haversine) distance in miles. The inexpensive lat/lon
-        # prefilter keeps the trig calculation bounded for normal radii.
-        lat_delta = radius_miles / 69.0
-        cos_lat = max(math.cos(math.radians(float(lat))), 0.01)
-        lon_delta = radius_miles / (69.0 * cos_lat)
+        clauses = [f"{lat_col} IS NOT NULL", f"{lon_col} IS NOT NULL"]
+        params: list[Any] = []
+        box = parse_bbox(bbox)
+        if box:
+            west,south,east,north = box
+            clauses += [f"{lon_col} BETWEEN ? AND ?", f"{lat_col} BETWEEN ? AND ?"]
+            params += [west,east,south,north]
 
-        type_clause = "AND facility_type = 'hospital'" if hospital_only else ""
-        df = con.execute(f"""
-            WITH nearby AS (
-                SELECT
-                    facility_id,
-                    ccn,
-                    name,
-                    facility_type,
-                    ownership,
-                    emergency_services,
-                    hospital_overall_rating,
-                    bed_count,
-                    city,
-                    state,
-                    longitude,
-                    latitude,
-                    tract_geoid,
-                    county_geoid,
-                    3958.7613 * 2 * asin(
-                        sqrt(
-                            pow(sin(radians(latitude - ?) / 2), 2)
-                            + cos(radians(?)) * cos(radians(latitude))
-                            * pow(sin(radians(longitude - ?) / 2), 2)
-                        )
-                    ) AS distance_miles
-                FROM facilities
-                WHERE longitude BETWEEN ? AND ?
-                  AND latitude BETWEEN ? AND ?
-                  AND longitude IS NOT NULL
-                  AND latitude IS NOT NULL
-                  {type_clause}
-            )
-            SELECT *
-            FROM nearby
-            WHERE distance_miles <= ?
-            ORDER BY distance_miles ASC
-            LIMIT ?
-        """, [lat, lat, lon, lon - lon_delta, lon + lon_delta, lat - lat_delta, lat + lat_delta, radius_miles, limit]).fetchdf()
+        try:
+            sfips,_ = normalize_state(state)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code":"invalid_state","message":str(exc)}) from exc
+        if sfips:
+            if "state_fips" in cols:
+                clauses.append("lpad(CAST(state_fips AS VARCHAR),2,'0') = ?")
+                params.append(sfips)
+            elif "state" in cols:
+                clauses.append("upper(CAST(state AS VARCHAR)) = ?")
+                params.append(FIPS_TO_ABBR.get(sfips, sfips))
+
+        if emergency_only:
+            emergency_col = next((c for c in ["emergency_services","emergency","has_emergency"] if c in cols), None)
+            if emergency_col:
+                clauses.append(f"coalesce(CAST({emergency_col} AS BOOLEAN),false)")
+
+        df = con.execute(
+            f"SELECT * FROM facilities WHERE {' AND '.join(clauses)} LIMIT ?",
+            params + [limit],
+        ).fetchdf()
     finally:
         con.close()
 
+    features = []
+    for r in df.to_dict(orient="records"):
+        lat = scalar(r.get(lat_col)); lon = scalar(r.get(lon_col))
+        props = record(r)
+        props.pop(lat_col, None); props.pop(lon_col, None)
+        fid = str(props.get("facility_id") or props.get("id") or props.get("ccn") or len(features))
+        features.append({"type":"Feature","id":fid,"geometry":{"type":"Point","coordinates":[lon,lat]},"properties":props})
+    return feature_collection(features, count=len(features), bbox=parse_bbox(bbox), truncated=len(features)>=limit)
+
+
+@app.get(f"{API}/map/population", tags=["map"])
+def map_population(
+    bbox: str | None = None,
+    state: str | None = None,
+    limit: int = Query(100000, ge=1, le=200000),
+) -> dict[str, Any]:
+    con = connect()
+    try:
+        if not _table_exists(con, "tracts"):
+            raise HTTPException(status_code=503, detail={"code":"stage5_unavailable","message":"Stage 5 tracts are unavailable"})
+        cols = [r[0] for r in con.execute("DESCRIBE tracts").fetchall()]
+        lat_col = next((c for c in ["centroid_latitude","latitude","lat"] if c in cols), None)
+        lon_col = next((c for c in ["centroid_longitude","longitude","lon"] if c in cols), None)
+        geoid_col = next((c for c in ["tract_geoid","geoid","GEOID"] if c in cols), None)
+        pop_col = next((c for c in ["population","total_population"] if c in cols), None)
+        dist_col = next((c for c in ["distance_to_nearest_hospital_miles","nearest_hospital_miles"] if c in cols), None)
+        if not lat_col or not lon_col or not pop_col:
+            raise HTTPException(status_code=503, detail={"code":"tract_columns_unavailable","message":"Stage 5 tracts lack required centroid/population fields"})
+
+        clauses = [f"{lat_col} IS NOT NULL", f"{lon_col} IS NOT NULL", f"coalesce({pop_col},0) > 0"]
+        params: list[Any] = []
+        box = parse_bbox(bbox)
+        if box:
+            west,south,east,north = box
+            clauses += [f"{lon_col} BETWEEN ? AND ?", f"{lat_col} BETWEEN ? AND ?"]
+            params += [west,east,south,north]
+
+        try:
+            sfips,_ = normalize_state(state)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"code":"invalid_state","message":str(exc)}) from exc
+        if sfips and geoid_col:
+            clauses.append(f"substr(CAST({geoid_col} AS VARCHAR),1,2) = ?")
+            params.append(sfips)
+
+        select_dist = f"{dist_col} AS distance_to_nearest_hospital_miles" if dist_col else "NULL AS distance_to_nearest_hospital_miles"
+        df = con.execute(
+            f"""SELECT {lat_col} AS latitude, {lon_col} AS longitude,
+                       {pop_col} AS population, {select_dist}
+                FROM tracts WHERE {' AND '.join(clauses)} LIMIT ?""",
+            params + [limit],
+        ).fetchdf()
+    finally:
+        con.close()
+
+    features = []
+    for i,r in enumerate(df.to_dict(orient="records")):
+        features.append({
+            "type":"Feature",
+            "geometry":{"type":"Point","coordinates":[scalar(r["longitude"]),scalar(r["latitude"])]},
+            "properties":{
+                "population":scalar(r["population"]),
+                "distance_to_nearest_hospital_miles":scalar(r["distance_to_nearest_hospital_miles"]),
+            },
+        })
+    return feature_collection(features, count=len(features), bbox=parse_bbox(bbox), truncated=len(features)>=limit)
+
+
+# ---------------- compatibility routes for the supplied React package ----------------
+
+@app.get("/api/health", include_in_schema=False)
+def compat_health():
+    return health()
+
+
+@app.get("/api/states", include_in_schema=False)
+def compat_states():
+    data = states_v1()["data"]
     return {
-        "tract_geoid": tract_geoid,
-        "radius_miles": radius_miles,
-        "hospital_only": hospital_only,
-        "count": len(df),
-        "data": records(df),
+        "states":[
+            {
+                "state":r["state"],
+                "name":r["name"],
+                "bbox":r["bbox"],
+                "candidates":r["candidate_count"],
+            }
+            for r in data if r.get("state")
+        ]
     }
 
 
-@app.get("/", include_in_schema=False)
-def root() -> JSONResponse:
-    return JSONResponse({
-        "name": "Optimal Hospital Placer API",
-        "version": "v1",
-        "docs": "/docs",
-        "api": API_PREFIX,
-    })
+@app.get("/api/hospitals", include_in_schema=False)
+def compat_hospitals(state: str | None = None):
+    fc = map_hospitals(state=state, limit=20000)
+    # Normalize common Stage 5 names into the current frontend's popup keys.
+    for f in fc["features"]:
+        p = f["properties"]
+        p.setdefault("name", p.get("facility_name") or p.get("hospital_name") or "Hospital")
+        p.setdefault("type", p.get("facility_type") or p.get("hospital_type") or "Hospital")
+        p.setdefault("address", p.get("address") or p.get("street_address") or "")
+        p.setdefault("city", p.get("city") or "")
+        p.setdefault("state", p.get("state") or "")
+        p.setdefault("zip", p.get("zip") or p.get("zip_code") or "")
+        p.setdefault("phone", p.get("phone") or "")
+        p.setdefault("ownership", p.get("ownership") or "")
+        p.setdefault("emergency", bool(p.get("emergency_services") or p.get("has_emergency") or False))
+        p.setdefault("rating", p.get("rating") or p.get("overall_rating"))
+        p.setdefault("counts_for_coverage", True)
+        p.setdefault("loc_quality", "exact")
+    fc.pop("meta", None)
+    return fc
+
+
+@app.get("/api/population", include_in_schema=False)
+def compat_population(state: str | None = None):
+    fc = map_population(state=state, limit=200000)
+    for f in fc["features"]:
+        p = f["properties"]
+        p["p"] = p.get("population") or 0
+        p["d"] = p.get("distance_to_nearest_hospital_miles") or 0
+    fc.pop("meta", None)
+    return fc
+
+
+@app.get("/api/optimize", include_in_schema=False)
+def compat_optimize(
+    w_population: float = Query(0.4, ge=0, le=1),
+    w_distance: float = Query(0.3, ge=0, le=1),
+    w_shortage: float = Query(0.2, ge=0, le=1),
+    w_cost: float = Query(0.1, ge=0, le=1),
+    radius: int = Query(30, ge=5, le=100),
+    k: int = Query(5, ge=1, le=100),
+    state: str | None = None,
+    include_hospitals: bool = False,
+):
+    # Compatibility mapping:
+    # population -> new access, distance -> drive access,
+    # shortage -> equal blend of capacity/vulnerability, cost -> cost efficiency.
+    raw = {
+        "population":w_population,
+        "distance":w_distance,
+        "shortage":w_shortage,
+        "cost":w_cost,
+    }
+    total = sum(raw.values())
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="At least one weight must be positive")
+
+    expr = """(
+        ? * coalesce(stage8_new_access_30min_score, coalesce(new_access_score, access_score, 0))
+      + ? * coalesce(drive_access_score, 0)
+      + ? * ((coalesce(capacity_score,0) + coalesce(vulnerability_score,0)) / 2.0)
+      + ? * coalesce(cost_efficiency_score,0)
+    )"""
+    score_params = [w_population/total, w_distance/total, w_shortage/total, w_cost/total]
+
+    t0 = time.perf_counter()
+    features, qmeta = _fetch_candidates(
+        state=state, bbox=None, min_score=None, min_beds=None, max_beds=None,
+        services=[], require_all_services=False, routing_refined=None,
+        limit=k, zoom=None, diversify=True,
+        score_expression=expr, score_params=score_params,
+    )
+
+    # Add factor aliases expected by the existing popup/results components.
+    for f in features:
+        p = f["properties"]
+        p["f_population"] = scalar(p.get("stage8_new_access_30min_score") or p.get("new_access_score") or p.get("access_score") or 0)
+        p["f_distance"] = scalar(p.get("drive_access_score") or 0)
+        p["f_shortage"] = scalar(((p.get("capacity_score") or 0) + (p.get("vulnerability_score") or 0)) / 2)
+        p["f_cost"] = scalar(p.get("cost_efficiency_score") or 0)
+        p["coverage_radius_mi"] = radius  # compatibility only; Stage 8 uses time windows, not a literal coverage circle.
+
+    response = {
+        "candidates":feature_collection(features),
+        "meta":{
+            **qmeta,
+            "weights":raw,
+            "radius":radius,
+            "k":k,
+            "state":state,
+            "compute_ms":round((time.perf_counter()-t0)*1000,1),
+            "compatibility_mode":True,
+            "note":"radius is retained for the old UI; final Stage 8 scoring uses drive-time/access features rather than this radius.",
+        },
+    }
+    if include_hospitals:
+        response["hospitals"] = compat_hospitals(state)
+    return response

@@ -1,6 +1,6 @@
-fastapi>=0.115,<1
-uvicorn[standard]>=0.30,<1
-duckdb>=1.1,<2
-pandas>=2.2,<3
-numpy>=2.0,<3
-shapely>=2.0,<3
+fastapi>=0.115
+uvicorn[standard]>=0.30
+duckdb>=1.1
+pandas>=2.1
+pyarrow>=14
+numpy>=1.26
