@@ -60,16 +60,18 @@ function ApiHelp({ error }) {
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
 
-// Map style (satellite or street map) and heatmap on/off, remembered per
-// browser. First-time visitors get satellite photos with the heatmap on.
+// Map style (satellite or street map), heatmap on/off and whether the
+// recommended sites follow the map, remembered per browser. First-time
+// visitors get satellite photos, the heatmap, and a fixed list of sites.
 const MAP_VIEW_KEY = "medmap-map-view";
-const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true };
+const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true, followMap: false };
 function readMapView() {
   try {
     const saved = JSON.parse(localStorage.getItem(MAP_VIEW_KEY));
     return {
       basemap: saved?.basemap === "streets" || saved?.basemap === "satellite" ? saved.basemap : DEFAULT_MAP_VIEW.basemap,
       heatmap: typeof saved?.heatmap === "boolean" ? saved.heatmap : DEFAULT_MAP_VIEW.heatmap,
+      followMap: typeof saved?.followMap === "boolean" ? saved.followMap : DEFAULT_MAP_VIEW.followMap,
     };
   } catch {
     return DEFAULT_MAP_VIEW;
@@ -96,6 +98,7 @@ export default function MapPage() {
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => !isPhone());
   const [basemap, setBasemap] = useState(initialView.basemap);
+  const [followMap, setFollowMap] = useState(initialView.followMap);
   const [textScale, setTextScale] = useState(readTextScale);
   const { theme } = useTheme();
 
@@ -104,14 +107,14 @@ export default function MapPage() {
   const [population, setPopulation] = useState(EMPTY_FC);
   const [layerLoad, setLayerLoad] = useState({ hospitals: "idle", population: "idle", error: null });
 
-  // Remember the map style and heatmap for next time.
+  // Remember the map style, heatmap and follow-the-map choice for next time.
   useEffect(() => {
     try {
-      localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ basemap, heatmap: layers.heatmap }));
+      localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ basemap, heatmap: layers.heatmap, followMap }));
     } catch {
       // not saved; still works for this visit
     }
-  }, [basemap, layers.heatmap]);
+  }, [basemap, layers.heatmap, followMap]);
 
   // Step from the latest size (not this render's), so quick repeated clicks all count.
   const changeTextScale = (step) =>
@@ -150,7 +153,11 @@ export default function MapPage() {
   const debouncedShare = useDebouncedValue(share, DEBOUNCE_MS);
   const debouncedViewport = useDebouncedValue(viewport, DEBOUNCE_MS);
   const debouncedState = useMemo(() => readUrl(new URLSearchParams(debouncedShare)), [debouncedShare]);
-  const optimizeParams = useMemo(() => ({ ...debouncedState, bbox: debouncedViewport?.bbox || null }), [debouncedState, debouncedViewport]);
+  // Fixed list: the top sites in the chosen state (or the U.S.), whatever the
+  // map shows. Following the map: re-ranked for the visible area after each
+  // move. The bbox is a string, so map moves don't refetch a fixed list.
+  const optimizeBbox = followMap ? debouncedViewport?.bbox || null : null;
+  const optimizeParams = useMemo(() => ({ ...debouncedState, bbox: optimizeBbox }), [debouncedState, optimizeBbox]);
   const optimize = useOptimize(optimizeParams);
 
   useEffect(() => {
@@ -177,8 +184,8 @@ export default function MapPage() {
     return () => controller.abort();
   }, [layers.heatmap, debouncedViewport, region]);
 
-  // New results arrive after every map move (they're for the visible area), so
-  // a site's popup stays open as long as that site is still in them.
+  // When the sites follow the map, new results arrive after every move, so a
+  // site's popup stays open as long as that site is still in them.
   useEffect(() => {
     const ids = new Set(optimize.candidates.features.map((f) => String(f.id)));
     setPopup((p) => p?.kind === "candidate" && !ids.has(String(p.ids[0])) ? null : p);
@@ -237,11 +244,12 @@ export default function MapPage() {
     return feature ? { key: popup.key, lngLat: popup.lngLat, content: <CandidatePopup site={feature.properties} weights={usedWeights} /> } : null;
   }, [popup, optimize.candidates, usedWeights]);
 
+  const scope = region ? STATE_NAMES[region] || region : "the U.S.";
   let status;
   const error = lookups.error || layerLoad.error || optimize.error;
   if (error) status = { kind: "error", text: error instanceof ApiUnavailable ? <ApiHelp error={error} /> : error.message };
   else if (share !== debouncedShare || optimize.status === "loading") status = { kind: "busy", text: "Ranking Stage 8 candidate sites…" };
-  else status = { kind: "", text: <>{optimize.candidates.features.length} candidates shown{region ? ` in ${STATE_NAMES[region] || region}` : " in this view"} · {optimize.meta?.compute_ms ?? "—"} ms<br /><small>Stage 8 run {lookups.meta?.dataset_run_id || "loading"}</small></> };
+  else status = { kind: "", text: <>{optimize.candidates.features.length} candidates shown {followMap ? "in this view" : `in ${scope}`} · {optimize.meta?.compute_ms ?? "—"} ms<br /><small>Stage 8 run {lookups.meta?.dataset_run_id || "loading"}</small></> };
 
   return (
     <div className="map-layout" style={{ "--text-scale": textScale }}>
@@ -278,6 +286,9 @@ export default function MapPage() {
             activeId={hoveredCandidate}
             onHover={setHoveredCandidate}
             onSelect={(id) => showCandidate(id, true)}
+            followMap={followMap}
+            onFollowMap={setFollowMap}
+            scope={scope}
           />
         </div>
         <Legend heatmapMode={heatmapMode} basemap={basemap} />
@@ -287,7 +298,7 @@ export default function MapPage() {
         <div className="sidebar-top"><TextSizeControl scale={textScale} canSmaller={textScale > TEXT_SCALES[0]} canLarger={textScale < TEXT_SCALES.at(-1)} onSmaller={() => changeTextScale(-1)} onLarger={() => changeTextScale(1)} /><button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>Close</button></div>
         <StatusBar kind={status.kind}>{status.text}</StatusBar>
         <Panel title="Region"><RegionSelect states={lookups.states} value={region} onChange={setRegion} /></Panel>
-        <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, percent) => setWeights((w) => setShare(w, key, percent))} /></Panel>
+        <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, percent) => setWeights((w) => setShare(w, key, percent))} onPreset={setWeights} /></Panel>
         <Panel title="Services"><ServiceFilters services={lookups.services} selected={filters.services} requireAll={filters.requireAllServices} onToggle={toggleService} onRequireAll={(v) => changeFilter("requireAllServices", v)} /></Panel>
         <Panel title="Site filters"><ModelFilters filters={filters} onChange={changeFilter} limit={limit} onLimit={setLimit} /></Panel>
         <div ref={detailPanel}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { STATE_NAMES, WEIGHTS } from "../../lib/constants.js";
+import { PRESETS, STATE_NAMES, WEIGHTS } from "../../lib/constants.js";
 import { clampNumber, fmt, points, scoreColor, scoreTextColor } from "../../lib/format.js";
 import { percentShares } from "../../lib/weights.js";
 
@@ -66,10 +66,26 @@ export function RegionSelect({ states, value, onChange }) {
  * always total 100%: `onChange(key, percent)` sets one, and the page scales
  * the others to fit (lib/weights.js setShare).
  */
-export function WeightSliders({ weights, onChange }) {
+export function WeightSliders({ weights, onChange, onPreset }) {
   const percents = percentShares(weights);
+  // A preset is active while the sliders still match it exactly.
+  const active = PRESETS.find((p) => {
+    const mix = percentShares(p.weights);
+    return WEIGHTS.every(({ key }) => mix[key] === percents[key]);
+  });
   return (
     <>
+      <div className="presets" role="group" aria-label="Presets">
+        {PRESETS.map((p) => (
+          <button key={p.id} type="button" className="preset" data-preset={p.id}
+            aria-pressed={active?.id === p.id} title={p.description} onClick={() => onPreset(p.weights)}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p className="preset-note" aria-live="polite">
+        {active ? active.description : "Custom mix from the sliders below."}
+      </p>
       <p className="help weights-intro">
         How much each factor counts toward a site's 100-point score. Raising one lowers the others.
       </p>
