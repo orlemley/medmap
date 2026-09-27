@@ -82,7 +82,7 @@ def zip_anchors(catalog):
     return result
 
 
-def _request_json(url, *, params=None, data=None, timeout=240, attempts=5):
+def _request_json(url, *, params=None, data=None, timeout=25, attempts=2):
     for attempt in range(attempts):
         try:
             response = requests.post(url, data=data, headers={"User-Agent": USER_AGENT}, timeout=timeout) if data else requests.get(
@@ -96,7 +96,7 @@ def _request_json(url, *, params=None, data=None, timeout=240, attempts=5):
 
 
 def _tie_candidates(address, benchmark):
-    payload = _request_json(TIE_URL, params={"address": address, "benchmark": benchmark, "format": "json"}, timeout=60)
+    payload = _request_json(TIE_URL, params={"address": address, "benchmark": benchmark, "format": "json"})
     return [{"latitude": m["coordinates"]["y"], "longitude": m["coordinates"]["x"],
              "matched_address": m.get("matchedAddress")}
             for m in payload.get("result", {}).get("addressMatches", [])]
@@ -114,7 +114,11 @@ def _batch_geocode(addresses, benchmark, request_geocode_batch):
         writer = csv.writer(buffer)
         for key, address in batch:
             writer.writerow([key, *address])
-        response = request_geocode_batch(buffer.getvalue().encode("utf-8"), benchmark, start // 1000 + 1)
+        try:
+            response = request_geocode_batch(buffer.getvalue().encode("utf-8"), benchmark, start // 1000 + 1)
+        except requests.RequestException as exc:
+            print(f"Skipping unavailable alternate-address batch {start // 1000 + 1}: {exc}", flush=True)
+            continue
         for values in csv.reader(io.StringIO(response.content.decode("utf-8-sig"))):
             if len(values) < 3 or values[0] not in dict(batch):
                 raise ValueError("Unexpected alternate-address geocoder response")
@@ -124,8 +128,9 @@ def _batch_geocode(addresses, benchmark, request_geocode_batch):
             if values[2] == "Match" and len(values) >= 6:
                 item["longitude"], item["latitude"] = map(float, values[5].split(","))
             output[values[0]] = item
-    if set(output) != set(addresses):
-        raise ValueError("Census omitted alternate-address records")
+    omitted = set(addresses) - set(output)
+    if omitted:
+        print(f"Census alternate-address lookup left {len(omitted):,} records unresolved", flush=True)
     return output
 
 
@@ -134,15 +139,16 @@ def _osm_places(points):
     for lat, lon, radius in points:
         around = f"around:{int(radius * 1609)},{lat:.5f},{lon:.5f}"
         clauses.extend([f'nwr["amenity"="hospital"]({around});', f'nwr["healthcare"="hospital"]({around});'])
-    query = "[out:json][timeout:180];(" + "".join(clauses) + ");out center tags;"
+    query = "[out:json][timeout:20];(" + "".join(clauses) + ");out center tags;"
     last = None
-    for index in range(9):
+    for index in range(2):
         try:
-            payload = _request_json(OVERPASS_URLS[index % len(OVERPASS_URLS)], data={"data": query}, attempts=1)
+            payload = _request_json(OVERPASS_URLS[index], data={"data": query}, timeout=25, attempts=1)
             break
         except requests.RequestException as exc:
             last = exc
-            time.sleep(4 + 4 * index)
+            if index == 0:
+                time.sleep(3)
     else:
         raise RuntimeError("OpenStreetMap lookup failed; cached work remains available") from last
     result = []
@@ -176,7 +182,8 @@ def _best_osm(row, anchor, places, radius):
     return best
 
 
-def enrich_hospital_geocodes(frame, cache_dir, enabled, catalog, benchmark, request_geocode_batch):
+def enrich_hospital_geocodes(frame, cache_dir, enabled, catalog, benchmark, request_geocode_batch,
+                             network_fallbacks=False):
     """Fill only missing hospital coordinates and return (frame, method counts)."""
     frame = frame.copy()
     for column in ("geocode_precision", "geocode_matched_address", "geocode_source_id",
@@ -205,9 +212,12 @@ def enrich_hospital_geocodes(frame, cache_dir, enabled, catalog, benchmark, requ
         if not anchor:
             continue
         one_line = f'{text(row.street)}, {text(row.city)}, {text(row.state)} {text(row.zip)}'
-        if one_line not in ties and enabled:
-            ties[one_line] = _tie_candidates(one_line, benchmark)
-            save_json(tie_path, ties)
+        if one_line not in ties and enabled and network_fallbacks:
+            try:
+                ties[one_line] = _tie_candidates(one_line, benchmark)
+                save_json(tie_path, ties)
+            except (requests.RequestException, ValueError) as exc:
+                print(f"Skipping unavailable Census tie lookup: {exc}", flush=True)
         options = ties.get(one_line) or []
         if options:
             choice = min(options, key=lambda item: miles(anchor[1], anchor[0], item["latitude"], item["longitude"]))
@@ -242,7 +252,7 @@ def enrich_hospital_geocodes(frame, cache_dir, enabled, catalog, benchmark, requ
         path = cache_dir / f"{key}.json"
         if not path.exists():
             pending[key] = list(address)
-    if pending and enabled:
+    if pending and enabled and network_fallbacks:
         for key, item in _batch_geocode(pending, benchmark, request_geocode_batch).items():
             save_json(cache_dir / f"{key}.json", item)
     for index, (key, _) in alternate_rows.items():
@@ -264,11 +274,16 @@ def enrich_hospital_geocodes(frame, cache_dir, enabled, catalog, benchmark, requ
     osm = read_json(osm_path) if osm_path.exists() else {"places": {}, "searched": []}
     searched = set(osm.get("searched", [])); places_by_id = osm.get("places", {})
     todo = [(index, row) for index, row in unresolved.iterrows() if row.facility_id not in searched]
-    if enabled:
+    if enabled and network_fallbacks:
         for start in range(0, len(todo), 60):
             chunk = todo[start:start + 60]
             points = [(row.fallback_latitude, row.fallback_longitude, 12) for _, row in chunk]
-            for place in _osm_places(points):
+            try:
+                found = _osm_places(points)
+            except (requests.RequestException, RuntimeError, ValueError) as exc:
+                print(f"Skipping unavailable OpenStreetMap chunk {start // 60 + 1}: {exc}", flush=True)
+                continue
+            for place in found:
                 places_by_id[place["osm_id"]] = place
             searched.update(row.facility_id for _, row in chunk)
             osm = {"places": places_by_id, "searched": sorted(searched)}

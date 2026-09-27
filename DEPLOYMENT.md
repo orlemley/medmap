@@ -39,14 +39,24 @@ Open `http://localhost:8000`. The health check is `/api/v1/health`.
 From the repository root:
 
 ```powershell
+python docker/prepare_runtime_data.py
 docker compose -f docker/docker-compose.yml up --build
 ```
 
 The multi-stage image builds the Vite bundle, installs the API dependencies,
-and runs one Uvicorn process. This is the simplest hackathon deployment target
-for Render, Railway, Fly.io, Azure Container Apps, or any service accepting a
-Dockerfile. Persisted processed data must be available in the image or mounted
-at `/app/data`.
+embeds safe copies of the active Stage 5, 7, and 8 snapshots, and runs one
+Uvicorn process. The preparation script never changes or deletes `data/`.
+This is the simplest hackathon deployment target for Render, Railway, Fly.io,
+Azure Container Apps, or any service accepting a Dockerfile.
+
+For development, optionally mount the repository's live data instead:
+
+```powershell
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.local-data.yml up --build
+```
+
+The mount is read-only. It hides the image's embedded snapshot for that
+container but does not alter either copy.
 
 ## Split hosting
 

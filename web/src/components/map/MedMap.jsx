@@ -39,6 +39,8 @@ function uniqueById(features) {
   return [...seen.values()];
 }
 
+const candidateId = (feature) => feature?.id ?? feature?.properties?.site_id ?? null;
+
 const HOME_ICON =
   '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">' +
   '<path d="M3 9.5 10 3.5l7 6M5.5 8v8h3.5v-4.5h2V16h3.5V8" fill="none" stroke="currentColor" ' +
@@ -185,8 +187,10 @@ export default function MedMap({
     map.on("moveend", reportViewport);
 
     // Guarded: during a style switch the layer briefly doesn't exist.
-    const candidatesAt = (point) =>
-      map.getLayer("candidates") ? map.queryRenderedFeatures(point, { layers: ["candidates"] }) : [];
+    const candidatesAt = (point) => {
+      const layers = ["candidate-labels", "candidates"].filter((id) => map.getLayer(id));
+      return layers.length ? map.queryRenderedFeatures(point, { layers }) : [];
+    };
     let hoveredHospital = null;
     const setHospitalHover = (id) => {
       if (hoveredHospital === id) return;
@@ -196,7 +200,7 @@ export default function MedMap({
     };
 
     const addListeners = () => {
-      for (const layer of ["hospitals", "candidates"]) {
+      for (const layer of ["hospitals", "candidates", "candidate-labels"]) {
         map.on("mouseenter", layer, () => {
           map.getCanvas().style.cursor = "pointer";
         });
@@ -209,18 +213,28 @@ export default function MedMap({
         map.getCanvas().style.cursor = "";
         setHospitalHover(null);
       });
-      map.on("mousemove", "candidates", (e) => latest.current.onCandidateHover(e.features[0].id));
-      map.on("mouseleave", "candidates", () => {
-        map.getCanvas().style.cursor = "";
-        latest.current.onCandidateHover(null);
-      });
-      map.on("click", "candidates", (e) => latest.current.onCandidateClick(e.features[0].id));
+      for (const layer of ["candidates", "candidate-labels"]) {
+        map.on("mousemove", layer, (e) => latest.current.onCandidateHover(candidateId(e.features[0])));
+        map.on("mouseleave", layer, () => {
+          map.getCanvas().style.cursor = "";
+          latest.current.onCandidateHover(null);
+        });
+      }
       map.on("click", "hospitals", (e) => {
         if (candidatesAt(e.point).length) return;
         const features = uniqueById(e.features);
         latest.current.onHospitalsClick(features.map((f) => ({ id: f.id, ...f.properties })), features[0].geometry.coordinates);
       });
     };
+
+    // A symbol label is rendered above its circle and can receive the physical
+    // click. Query both layers at the point and use the stable property ID if
+    // MapLibre omits the GeoJSON top-level ID from a rendered feature.
+    map.on("click", (e) => {
+      const feature = candidatesAt(e.point)[0];
+      const id = candidateId(feature);
+      if (id !== null) latest.current.onCandidateClick(id);
+    });
 
     // Fires for the first style and after every theme switch. Our sources and
     // layers are (re)added here; the effects then push the data back in.

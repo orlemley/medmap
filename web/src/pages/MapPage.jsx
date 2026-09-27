@@ -131,6 +131,7 @@ export default function MapPage() {
   const [detail, setDetail] = useState({ siteId: null, status: "idle", data: null, error: null });
   const popupCounter = useRef(0);
   const mapApi = useRef(null);
+  const detailPanel = useRef(null);
 
   useEffect(() => {
     let alive = true;
@@ -194,6 +195,16 @@ export default function MapPage() {
     return () => controller.abort();
   }, [detail.siteId]);
 
+  useEffect(() => {
+    if (!detail.siteId || !sidebarOpen) return;
+    // Map markers and leaderboard rows share the same selection path. Wait for
+    // the opened sidebar/detail panel to render, then reveal the full details.
+    const frame = requestAnimationFrame(() => {
+      detailPanel.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [detail.siteId, sidebarOpen]);
+
   const regionInfo = lookups.states.find((x) => x.state === region);
   const homeView = useMemo(() => regionInfo
     ? { bounds: [[regionInfo.bbox[0], regionInfo.bbox[1]], [regionInfo.bbox[2], regionInfo.bbox[3]]], padding: 40, maxZoom: 9, label: STATE_NAMES[region] || region }
@@ -207,6 +218,7 @@ export default function MapPage() {
     if (fly) mapApi.current?.focusOn(feature.geometry.coordinates);
     setPopup({ key: nextKey(), kind: "candidate", source: "candidates", ids: [feature.id], lngLat: feature.geometry.coordinates });
     setDetail({ siteId: String(feature.id), status: "loading", data: null, error: null });
+    setSidebarOpen(true);
   };
 
   const changeFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
@@ -278,7 +290,9 @@ export default function MapPage() {
         <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, percent) => setWeights((w) => setShare(w, key, percent))} /></Panel>
         <Panel title="Services"><ServiceFilters services={lookups.services} selected={filters.services} requireAll={filters.requireAllServices} onToggle={toggleService} onRequireAll={(v) => changeFilter("requireAllServices", v)} /></Panel>
         <Panel title="Site filters"><ModelFilters filters={filters} onChange={changeFilter} limit={limit} onLimit={setLimit} /></Panel>
-        <CandidateDetail state={detail} onClose={() => setDetail({ siteId: null, status: "idle", data: null, error: null })} />
+        <div ref={detailPanel}>
+          <CandidateDetail state={detail} onClose={() => setDetail({ siteId: null, status: "idle", data: null, error: null })} />
+        </div>
         <Panel title="Layers"><LayerToggles layers={layers} onToggle={toggleLayer} heatmapMode={heatmapMode} onHeatmapMode={(mode) => { setHeatmapMode(mode); setLayers((l) => ({ ...l, heatmap: true })); }} /></Panel>
         <Panel title="Hospital types"><HospitalTypeFilter hospitals={hospitals} hiddenTypes={hiddenTypes} onToggle={toggleType} /></Panel>
       </aside>

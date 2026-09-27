@@ -18,8 +18,8 @@ from s3_geocode_fallbacks import enrich_hospital_geocodes
 
 
 def request_geocode_batch(payload, benchmark, batch_number):
-    """Retry transient transport/service failures; keep each attempt identical."""
-    attempts = 5
+    """Make a bounded best-effort Census request."""
+    attempts = 2
     retry_statuses = {408, 429, 500, 502, 503, 504}
     for attempt in range(1, attempts + 1):
         response = None
@@ -27,7 +27,7 @@ def request_geocode_batch(payload, benchmark, batch_number):
             response = requests.post(
                 'https://geocoding.geo.census.gov/geocoder/locations/addressbatch',
                 files={'addressFile': ('addresses.csv', payload, 'text/csv')},
-                data={'benchmark': benchmark}, timeout=(30, 600))
+                data={'benchmark': benchmark}, timeout=(10, 60))
             response.raise_for_status()
             return response
         except (requests.Timeout, requests.ConnectionError, requests.HTTPError) as exc:
@@ -40,9 +40,9 @@ def request_geocode_batch(payload, benchmark, batch_number):
                 response.close()
             if attempt == attempts:
                 print(f'Geocoding batch {batch_number} failed after {attempts} attempts. '
-                      'Completed batches remain cached.', flush=True)
+                      'Leaving this batch unresolved; completed batches remain cached.', flush=True)
                 raise
-            delay = 15 * (2 ** (attempt - 1))
+            delay = 5 * attempt
             print(f'Geocoding batch {batch_number}: attempt {attempt}/{attempts} failed '
                   f'({exc}). Retrying the same batch in {delay} seconds.', flush=True)
             time.sleep(delay)
@@ -149,7 +149,7 @@ def registry(catalog, states, run):
     return frame
 
 
-def geocode(frame, cache_dir, enabled, catalog=None, quality=None):
+def geocode(frame, cache_dir, enabled, catalog=None, quality=None, network_fallbacks=False):
     cache_dir.mkdir(parents=True, exist_ok=True)
     benchmark = 'Public_AR_Current'
     address_keys, pending, cache = {}, {}, {}
@@ -184,8 +184,12 @@ def geocode(frame, cache_dir, enabled, catalog=None, quality=None):
             for key, address in batch:
                 writer.writerow([key, *address])
             print(f'Geocoding batch {start // 1000 + 1}: {len(batch)} addresses', flush=True)
-            response = request_geocode_batch(buffer.getvalue().encode('utf-8'), benchmark,
-                                             start // 1000 + 1)
+            try:
+                response = request_geocode_batch(buffer.getvalue().encode('utf-8'), benchmark,
+                                                 start // 1000 + 1)
+            except requests.RequestException as exc:
+                print(f'Skipping unavailable Census batch {start // 1000 + 1}: {exc}', flush=True)
+                continue
             returned = {}
             for values in csv.reader(io.StringIO(response.content.decode('utf-8-sig'))):
                 if len(values) < 3 or values[0] not in dict(batch) or values[0] in returned:
@@ -221,7 +225,8 @@ def geocode(frame, cache_dir, enabled, catalog=None, quality=None):
     original_ids = frame.facility_id.copy()
     original_count = len(frame)
     frame, fallback_counts = enrich_hospital_geocodes(
-        frame, cache_dir, enabled, catalog, benchmark, request_geocode_batch)
+        frame, cache_dir, enabled, catalog, benchmark, request_geocode_batch,
+        network_fallbacks=network_fallbacks)
     if len(frame) != original_count or not frame.facility_id.equals(original_ids):
         raise ValueError('Fallback geocoding changed the facility registry identity contract')
     if quality is not None:

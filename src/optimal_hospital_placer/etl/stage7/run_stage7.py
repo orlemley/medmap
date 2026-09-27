@@ -5,9 +5,10 @@ from pathlib import Path
 import sys
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+SRC_ROOT = HERE.parents[2]
+PROJECT_ROOT = HERE.parents[3]
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 
 from optimal_hospital_placer.etl.stage7.config import Stage7Config
 from optimal_hospital_placer.etl.stage7.optimize import run_stage7
@@ -37,7 +38,7 @@ def main() -> int:
         weight_configuration_fit=args.weight_configuration_fit,
         weight_cost_efficiency=args.weight_cost_efficiency,
     )
-    run_stage7(ROOT, cfg, stage6_run=args.stage6_run, states=args.states)
+    run_stage7(PROJECT_ROOT, cfg, stage6_run=args.stage6_run, states=args.states)
     return 0
 
 

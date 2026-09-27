@@ -1,0 +1,6 @@
+# Optional development override: use the repository's live processed data
+# instead of the immutable snapshot embedded in the image.
+services:
+  medmap:
+    volumes:
+      - ../data:/app/data:ro

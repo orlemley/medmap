@@ -11,7 +11,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .db import connect, paths
-from .query import ALLOWED_SERVICES, candidate_where, default_limit_for_zoom, grid_cell_degrees
+from .query import (
+    ALLOWED_SERVICES, candidate_where, default_limit_for_zoom,
+    diversify_ranked_rows, grid_cell_degrees,
+)
 from .schemas import OptimizeRequest
 from .states import FIPS_TO_ABBR, STATE_NAMES, normalize_state
 from .utils import candidate_feature, feature_collection, parse_bbox, record, records, scalar, state_fields
@@ -102,6 +105,29 @@ def _candidate_query(
         ORDER BY query_score DESC NULLS LAST
         LIMIT ?
         """
+    elif diversify:
+        # POST /optimize has no map zoom. Deduplicate the ranked pool by tract
+        # here, then apply real distance separation in _fetch_candidates.
+        sql = f"""
+        WITH scored AS (
+            SELECT *, ({score_expression}) AS query_score
+            FROM final_candidates
+            WHERE {where}
+        ), score_filtered AS (
+            SELECT * FROM scored {score_filter}
+        ), tract_deduplicated AS (
+            SELECT *, row_number() OVER (
+                PARTITION BY coalesce(CAST(source_tract_geoid AS VARCHAR), CAST(site_id AS VARCHAR))
+                ORDER BY query_score DESC NULLS LAST
+            ) AS tract_rank
+            FROM score_filtered
+        )
+        SELECT * EXCLUDE(tract_rank)
+        FROM tract_deduplicated
+        WHERE tract_rank = 1
+        ORDER BY query_score DESC NULLS LAST
+        LIMIT ?
+        """
     else:
         sql = f"""
         WITH scored AS (
@@ -142,17 +168,40 @@ def _score_expression(weights: dict[str, float]) -> tuple[str, list[float], dict
 
 
 def _fetch_candidates(**kwargs) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    requested_limit = kwargs["limit"]
+    distance_diversification = bool(kwargs.get("diversify") and kwargs.get("zoom") is None)
+    query_kwargs = dict(kwargs)
+    if distance_diversification:
+        # Rank a broad pool before spreading it. SQL already removes the second
+        # point from each tract, preventing near-duplicates from crowding out
+        # otherwise eligible communities before the pool limit.
+        query_kwargs["limit"] = min(30_000, max(1_000, requested_limit * 40))
     con = connect()
     try:
-        sql, params = _candidate_query(**kwargs)
+        sql, params = _candidate_query(**query_kwargs)
         df = con.execute(sql, params).fetchdf()
     finally:
         con.close()
+    rows = df.to_dict(orient="records")
+    separation = None
+    if distance_diversification:
+        rows, separation = diversify_ranked_rows(
+            rows, requested_limit, bbox=parse_bbox(kwargs.get("bbox")), state=kwargs.get("state")
+        )
+    else:
+        rows = rows[:requested_limit]
     features = [
         candidate_feature(row, rank=i + 1, score=scalar(row.get("query_score")))
-        for i, row in enumerate(df.to_dict(orient="records"))
+        for i, row in enumerate(rows)
     ]
-    return features, {"count":len(features), "truncated":len(features) >= kwargs["limit"]}
+    meta = {
+        "count":len(features),
+        "truncated":len(features) >= requested_limit,
+        "diversification_method": "tract_then_great_circle" if distance_diversification else None,
+        "initial_separation_miles": round(separation, 1) if separation is not None else None,
+        "ranked_pool_size": len(df) if distance_diversification else None,
+    }
+    return features, meta
 
 
 @app.get(f"{API}/health", tags=["system"])
