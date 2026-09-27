@@ -129,6 +129,7 @@ export default function MedMap({
   onCandidateClick,
   onCandidateHover,
   onPopupClose,
+  onViewportChange,
 }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
@@ -140,7 +141,7 @@ export default function MedMap({
   useLayoutEffect(() => {
     latest.current = {
       radius, heatmapMode, homeView, theme, basemap,
-      onHospitalsClick, onCandidateClick, onCandidateHover, onPopupClose,
+      onHospitalsClick, onCandidateClick, onCandidateHover, onPopupClose, onViewportChange,
     };
   });
   const resetControl = useRef(null);
@@ -174,6 +175,14 @@ export default function MedMap({
     resetControl.current = new ResetViewControl(() => flyHome(map, latest.current.homeView));
     map.addControl(resetControl.current, "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
+
+    const reportViewport = () => {
+      const bounds = map.getBounds();
+      const values = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+        .map((value) => Math.round(value * 10000) / 10000);
+      latest.current.onViewportChange?.({ bbox: values.join(","), zoom: Math.round(map.getZoom() * 10) / 10 });
+    };
+    map.on("moveend", reportViewport);
 
     // Guarded: during a style switch the layer briefly doesn't exist.
     const candidatesAt = (point) =>
@@ -224,6 +233,7 @@ export default function MedMap({
         listenersAdded = true;
       }
       setLoaded(true);
+      reportViewport();
     });
 
     return () => {

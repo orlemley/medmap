@@ -1,48 +1,83 @@
 import { API_BASE } from "../config.js";
 
-/** The API isn't there at all (server down, or API_BASE points somewhere else). */
 export class ApiUnavailable extends Error {}
 
-export async function apiGet(path, signal) {
+function errorMessage(body, status) {
+  const detail = body?.detail;
+  if (typeof detail === "string") return detail;
+  if (detail?.message) return detail.message;
+  if (Array.isArray(detail)) return detail.map((item) => item.msg).filter(Boolean).join("; ");
+  return body?.error || `HTTP ${status}`;
+}
+
+async function apiRequest(path, { signal, method = "GET", body } = {}) {
   let res;
   try {
-    res = await fetch(API_BASE + path, { signal });
+    res = await fetch(API_BASE + path, {
+      signal, method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
   } catch (err) {
     if (err.name === "AbortError") throw err;
     throw new ApiUnavailable("network error");
   }
-  let body;
+  let payload;
   try {
-    body = await res.json();
+    payload = await res.json();
   } catch {
-    // A static file server answers /api/... with an HTML page, not JSON.
     throw new ApiUnavailable(`HTTP ${res.status}, not a JSON response`);
   }
-  if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`);
-  return body;
+  if (!res.ok) throw new Error(errorMessage(payload, res.status));
+  return payload;
 }
 
-// Data that doesn't change while the page is open is fetched once and kept,
-// so going Home -> Map -> About -> Map doesn't download it again.
+export const apiGet = (path, signal) => apiRequest(path, { signal });
+export const apiPost = (path, body, signal) => apiRequest(path, { method: "POST", body, signal });
+
 const cache = new Map();
 function cached(path) {
   if (!cache.has(path)) {
-    const promise = apiGet(path).catch((err) => {
-      cache.delete(path); // let the next attempt retry
-      throw err;
-    });
+    const promise = apiGet(path).catch((err) => { cache.delete(path); throw err; });
     cache.set(path, promise);
   }
   return cache.get(path);
 }
 
-export const getStates = () => cached("/api/states").then((d) => d.states);
-export const getHospitals = () => cached("/api/hospitals");
-export const getPopulation = () => cached("/api/population");
+export const getHealth = () => cached("/api/v1/health");
+export const getMeta = () => cached("/api/v1/meta");
+export const getStates = () => cached("/api/v1/states").then((d) => d.data);
+export const getServices = () => cached("/api/v1/services").then((d) => d.data);
 
-export function getOptimize({ weights, radius, k, region }, signal) {
-  const q = new URLSearchParams({ radius, k, include_hospitals: 0 });
-  for (const [key, value] of Object.entries(weights)) q.set("w_" + key, value);
-  if (region) q.set("state", region);
-  return apiGet("/api/optimize?" + q, signal);
+function queryPath(path, params) {
+  const q = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) value.forEach((item) => q.append(key, item));
+    else q.set(key, value);
+  }
+  return q.size ? `${path}?${q}` : path;
+}
+
+export const getHospitals = ({ bbox, state, limit = 20000 }, signal) =>
+  apiGet(queryPath("/api/v1/map/hospitals", { bbox, state, limit }), signal);
+export const getPopulation = ({ bbox, state, limit = 100000 }, signal) =>
+  apiGet(queryPath("/api/v1/map/population", { bbox, state, limit }), signal);
+export const getCandidateDetail = (siteId, signal) =>
+  apiGet(`/api/v1/candidates/${encodeURIComponent(siteId)}`, signal);
+
+export function getOptimize({ weights, region, bbox, limit, filters }, signal) {
+  return apiPost("/api/v1/optimize", {
+    weights,
+    state: region || null,
+    bbox: bbox || null,
+    limit,
+    min_score: filters.minScore || null,
+    min_beds: filters.minBeds || null,
+    max_beds: filters.maxBeds || null,
+    services: filters.services,
+    require_all_services: filters.requireAllServices,
+    routing_refined: filters.routingRefined === "any" ? null : filters.routingRefined === "refined",
+    diversify: filters.diversify,
+  }, signal);
 }

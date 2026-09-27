@@ -44,10 +44,10 @@ export function CandidatePopup({ site, weights }) {
   return (
     <div className="popup">
       <h3>#{site.rank}: {site.county} County, {site.state}</h3>
-      <p className="sub">Census tract {site.tract_id}</p>
+      <p className="sub">Census tract {site.tract_id} · {site.proposed_beds ?? "—"} proposed beds</p>
       <div className="breakdown">
         {WEIGHTS.map(({ key, label }) => {
-          const factor = Number(site["f_" + key]);
+          const factor = Number(site[key + "_score"] ?? 0);
           const points = (weights[key] * factor) / total;
           return (
             <div className="breakdown-row" key={key} title={`${label}: factor ${factor.toFixed(2)} x weight ${weights[key]}`}>
@@ -60,15 +60,15 @@ export function CandidatePopup({ site, weights }) {
         <div className="total"><span>Score</span><span>{Number(site.score).toFixed(2)}</span></div>
       </div>
       <dl>
-        <dt>Gain coverage</dt><dd>{fmt(site.uncovered_population)} people</dd>
-        <dt>Avg. closer by</dt><dd>{site.avg_distance_reduction_mi} mi</dd>
-        <dt>Nearest hospital</dt><dd>{site.nearest_hospital_mi} mi</dd>
+        <dt>New 30-min access</dt><dd>{fmt(site.newly_accessible_population_30min ?? site.uncovered_population)} people</dd>
+        <dt>Time saved</dt><dd>{site.population_weighted_mean_minutes_saved ?? "—"} min average</dd>
+        <dt>Nearest hospital</dt><dd>{site.nearest_existing_hospital_estimated_drive_miles ?? site.nearest_hospital_mi ?? "—"} mi</dd>
         <dt>Shortage areas</dt><dd>{flags}</dd>
         <dt>Density</dt><dd>{fmt(site.density_per_sq_mi)} / sq mi{site.density_imputed ? " (estimated)" : ""}</dd>
         <dt>Tract population</dt><dd>{fmt(site.tract_population)}</dd>
       </dl>
       <p className="caveat">
-        Bars show each factor from 0 to 1. Numbers are its weighted share of the score. Distances are straight-line.
+        Bars show each Stage 8 component from 0 to 1. Select this site for services, access bands and configurations.
       </p>
     </div>
   );

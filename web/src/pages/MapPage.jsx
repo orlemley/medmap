@@ -1,423 +1,224 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "../config.js";
 import Legend from "../components/map/Legend.jsx";
 import MedMap from "../components/map/MedMap.jsx";
 import { CandidatePopup, HospitalPopup } from "../components/map/Popups.jsx";
+import CandidateDetail from "../components/sidebar/CandidateDetail.jsx";
 import {
-  HospitalTypeFilter,
-  LayerToggles,
-  NumberField,
-  Panel,
-  RegionSelect,
-  ResultsList,
-  StatusBar,
-  TextSizeControl,
-  WeightSliders,
+  HospitalTypeFilter, LayerToggles, ModelFilters, Panel, RegionSelect, ResultsList,
+  ServiceFilters, StatusBar, TextSizeControl, WeightSliders,
 } from "../components/sidebar/Controls.jsx";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { useOptimize } from "../hooks/useOptimize.js";
-import { ApiUnavailable, getHospitals, getPopulation, getStates } from "../lib/api.js";
-import { DEBOUNCE_MS, DEFAULT_WEIGHTS, RADIUS, SITES, STATE_NAMES, TEXT_SCALES, US_BOUNDS, WEIGHTS } from "../lib/constants.js";
+import { ApiUnavailable, getCandidateDetail, getHospitals, getMeta, getPopulation, getServices, getStates } from "../lib/api.js";
+import { DEBOUNCE_MS, DEFAULT_FILTERS, DEFAULT_WEIGHTS, EMPTY_FC, RESULTS, STATE_NAMES, TEXT_SCALES, US_BOUNDS, WEIGHTS } from "../lib/constants.js";
 import { clampNumber, fmt } from "../lib/format.js";
 import { useTheme } from "../theme.jsx";
 
-/** Settings come from the URL, so a copied link reproduces the view. */
-function readUrl(searchParams) {
+function readUrl(params) {
+  const weights = Object.fromEntries(WEIGHTS.map(({ key }) => [key,
+    clampNumber(params.get("w_" + key), 0, 1, DEFAULT_WEIGHTS[key], 3)]));
+  const services = (params.get("services") || "").split(",").filter(Boolean);
   return {
-    weights: Object.fromEntries(
-      WEIGHTS.map(({ key }) => [key, clampNumber(searchParams.get("w_" + key), 0, 1, DEFAULT_WEIGHTS[key], 2)])
-    ),
-    radius: clampNumber(searchParams.get("radius"), RADIUS.min, RADIUS.max, RADIUS.default),
-    k: clampNumber(searchParams.get("k"), SITES.min, SITES.max, SITES.default),
-    region: (searchParams.get("state") || "").toUpperCase(),
+    weights,
+    region: (params.get("state") || "").toUpperCase(),
+    limit: clampNumber(params.get("limit"), RESULTS.min, RESULTS.max, RESULTS.default),
+    filters: {
+      ...DEFAULT_FILTERS, services,
+      requireAllServices: params.get("all_services") === "1",
+      minBeds: clampNumber(params.get("min_beds"), 0, 2000, 0),
+      maxBeds: clampNumber(params.get("max_beds"), 0, 2000, 0),
+      minScore: clampNumber(params.get("min_score"), 0, 1, 0, 2),
+      routingRefined: ["refined", "estimated"].includes(params.get("routing")) ? params.get("routing") : "any",
+      diversify: params.get("diversify") !== "0",
+    },
   };
 }
 
-function toQuery({ weights, radius, k, region }) {
+function shareQuery({ weights, region, limit, filters }) {
   const q = new URLSearchParams();
-  for (const { key } of WEIGHTS) q.set("w_" + key, weights[key]);
-  q.set("radius", radius);
-  q.set("k", k);
+  WEIGHTS.forEach(({ key }) => q.set("w_" + key, weights[key]));
   if (region) q.set("state", region);
+  q.set("limit", limit);
+  if (filters.services.length) q.set("services", filters.services.join(","));
+  if (filters.requireAllServices) q.set("all_services", "1");
+  if (filters.minBeds) q.set("min_beds", filters.minBeds);
+  if (filters.maxBeds) q.set("max_beds", filters.maxBeds);
+  if (filters.minScore) q.set("min_score", filters.minScore);
+  if (filters.routingRefined !== "any") q.set("routing", filters.routingRefined);
+  if (!filters.diversify) q.set("diversify", "0");
   return q.toString();
 }
 
 function ApiHelp({ error }) {
-  return (
-    <>
-      Can't reach the MedMap API at <code>{API_BASE || window.location.origin}/api</code> ({error.message}).
-      Start it with <code>python web/api/server.py</code> (or double-click <code>web/start.cmd</code>) and open
-      the address it prints.
-    </>
-  );
+  return <>Can't reach the Stage 8 API at <code>{API_BASE || window.location.origin}/api/v1</code> ({error.message}).</>;
 }
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
-
-// Text size for the sidebar, legend and popups, remembered per browser.
 const TEXT_SCALE_KEY = "medmap-text-scale";
 function readTextScale() {
-  try {
-    const value = Number(localStorage.getItem(TEXT_SCALE_KEY));
-    return TEXT_SCALES.includes(value) ? value : 1;
-  } catch {
-    return 1;
-  }
+  try { const n = Number(localStorage.getItem(TEXT_SCALE_KEY)); return TEXT_SCALES.includes(n) ? n : 1; }
+  catch { return 1; }
 }
 
 export default function MapPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [initial] = useState(() => readUrl(searchParams));
-
-  // --- What the user controls
+  const initial = useMemo(() => readUrl(new URLSearchParams(window.location.search)), []);
   const [weights, setWeights] = useState(initial.weights);
-  const [radius, setRadius] = useState(initial.radius);
-  const [k, setK] = useState(initial.k);
   const [region, setRegion] = useState(initial.region);
-  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: true, heatmap: false });
+  const [limit, setLimit] = useState(initial.limit);
+  const [filters, setFilters] = useState(initial.filters);
+  const [viewport, setViewport] = useState(null);
+  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: false, heatmap: false });
   const [heatmapMode, setHeatmapMode] = useState("all");
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => !isPhone());
-  const [basemap, setBasemap] = useState("streets"); // or "satellite"
+  const [basemap, setBasemap] = useState("streets");
   const [textScale, setTextScale] = useState(readTextScale);
   const { theme } = useTheme();
 
-  const changeTextScale = (step) => {
-    const i = TEXT_SCALES.indexOf(textScale) + step;
-    if (i < 0 || i >= TEXT_SCALES.length) return;
-    setTextScale(TEXT_SCALES[i]);
-    try {
-      localStorage.setItem(TEXT_SCALE_KEY, String(TEXT_SCALES[i]));
-    } catch {
-      // still applies for this visit
-    }
-  };
-
-  // --- Data from the API
-  const [states, setStates] = useState([]);
-  const [hospitals, setHospitals] = useState(null);
-  const [loadError, setLoadError] = useState(null);
-  const [population, setPopulation] = useState(null);
-  const [populationLoad, setPopulationLoad] = useState({ status: "idle", error: null });
-
-  // --- Map interaction
+  const [lookups, setLookups] = useState({ states: [], services: [], meta: null, error: null });
+  const [hospitals, setHospitals] = useState(EMPTY_FC);
+  const [population, setPopulation] = useState(EMPTY_FC);
+  const [layerLoad, setLayerLoad] = useState({ hospitals: "idle", population: "idle", error: null });
   const [hoveredCandidate, setHoveredCandidate] = useState(null);
-  const [popup, setPopup] = useState(null); // { key, kind, source, ids, lngLat, hospitals? }
+  const [popup, setPopup] = useState(null);
+  const [detail, setDetail] = useState({ siteId: null, status: "idle", data: null, error: null });
   const popupCounter = useRef(0);
   const mapApi = useRef(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getStates(), getHospitals()])
-      .then(([s, h]) => {
-        if (!alive) return;
-        setStates(s);
-        setHospitals(h);
-      })
-      .catch((err) => alive && setLoadError(err));
-    return () => {
-      alive = false;
-    };
+    Promise.all([getStates(), getServices(), getMeta()])
+      .then(([states, services, meta]) => alive && setLookups({ states, services, meta, error: null }))
+      .catch((error) => alive && setLookups((s) => ({ ...s, error })));
+    return () => { alive = false; };
   }, []);
 
-  // A state code from an old or hand-edited link that the data doesn't have.
   useEffect(() => {
-    if (states.length && region && !states.some((s) => s.state === region)) setRegion("");
-  }, [states, region]);
+    if (lookups.states.length && region && !lookups.states.some((s) => s.state === region)) setRegion("");
+  }, [lookups.states, region]);
 
-  // --- Scoring: debounced, so dragging a slider sends one request, not dozens.
-  // The settings are compared as a query string, so equal settings are always
-  // "unchanged" (objects would differ by identity and trigger extra requests).
-  const query = toQuery({ weights, radius, k, region });
-  const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
-  const debounced = useMemo(() => readUrl(new URLSearchParams(debouncedQuery)), [debouncedQuery]);
-  const optimize = useOptimize(debounced);
+  const queryState = useMemo(() => ({ weights, region, limit, filters }), [weights, region, limit, filters]);
+  const share = shareQuery(queryState);
+  const debouncedShare = useDebouncedValue(share, DEBOUNCE_MS);
+  const debouncedViewport = useDebouncedValue(viewport, DEBOUNCE_MS);
+  const debouncedState = useMemo(() => readUrl(new URLSearchParams(debouncedShare)), [debouncedShare]);
+  const optimizeParams = useMemo(() => ({ ...debouncedState, bbox: debouncedViewport?.bbox || null }), [debouncedState, debouncedViewport]);
+  const optimize = useOptimize(optimizeParams);
 
-  // Keep the address bar in sync so the current view can be shared as a link.
-  const setSearchRef = useRef(setSearchParams);
-  useLayoutEffect(() => {
-    setSearchRef.current = setSearchParams;
-  });
   useEffect(() => {
-    if (debouncedQuery !== window.location.search.slice(1)) setSearchRef.current(debouncedQuery, { replace: true });
-  }, [debouncedQuery]);
+    if (debouncedShare !== window.location.search.slice(1)) history.replaceState(null, "", `${location.pathname}?${debouncedShare}`);
+  }, [debouncedShare]);
 
-  // New results: old popups and hover refer to sites that may be gone.
   useEffect(() => {
-    setPopup((p) => (p?.kind === "candidate" ? null : p));
-    setHoveredCandidate(null);
-  }, [optimize.candidates]);
+    if (!debouncedViewport?.bbox && !region) return;
+    const controller = new AbortController();
+    setLayerLoad((s) => ({ ...s, hospitals: "loading", error: null }));
+    getHospitals({ bbox: debouncedViewport?.bbox, state: region }, controller.signal)
+      .then((data) => { setHospitals(data); setLayerLoad((s) => ({ ...s, hospitals: "ok" })); })
+      .catch((error) => { if (error.name !== "AbortError") setLayerLoad((s) => ({ ...s, hospitals: "error", error })); });
+    return () => controller.abort();
+  }, [debouncedViewport, region]);
 
-  // The map's starting view: the chosen state, or the lower 48. The map flies
-  // there when this changes, and its Reset view button returns here.
-  const regionInfo = states.find((x) => x.state === region);
-  const homeView = useMemo(() => {
-    if (!regionInfo) return { bounds: US_BOUNDS, padding: 20, label: "the U.S." };
-    const [w, south, e, n] = regionInfo.bbox;
-    return { bounds: [[w, south], [e, n]], padding: 40, maxZoom: 9, label: STATE_NAMES[regionInfo.state] || regionInfo.state };
-  }, [regionInfo]);
-
-  // Population is ~1 MB, so only fetch it the first time the heatmap is shown.
   useEffect(() => {
-    if (!layers.heatmap || populationLoad.status !== "idle") return;
-    setPopulationLoad({ status: "loading", error: null });
-    getPopulation()
-      .then((p) => {
-        setPopulation(p);
-        setPopulationLoad({ status: "ok", error: null });
-      })
-      .catch((error) => setPopulationLoad({ status: "error", error }));
-  }, [layers.heatmap, populationLoad.status]);
+    if (!layers.heatmap || (!debouncedViewport?.bbox && !region)) return;
+    const controller = new AbortController();
+    setLayerLoad((s) => ({ ...s, population: "loading", error: null }));
+    getPopulation({ bbox: debouncedViewport?.bbox, state: region }, controller.signal)
+      .then((data) => { setPopulation(data); setLayerLoad((s) => ({ ...s, population: "ok" })); })
+      .catch((error) => { if (error.name !== "AbortError") setLayerLoad((s) => ({ ...s, population: "error", error })); });
+    return () => controller.abort();
+  }, [layers.heatmap, debouncedViewport, region]);
 
-  // Close a popup whose markers were just hidden.
+  useEffect(() => { setPopup((p) => p?.kind === "candidate" ? null : p); setHoveredCandidate(null); }, [optimize.candidates]);
+
   useEffect(() => {
-    setPopup((p) => {
-      if (p?.kind === "hospitals" && (!layers.hospitals || p.hospitals.some((h) => hiddenTypes.has(h.type)))) return null;
-      if (p?.kind === "candidate" && !layers.candidates) return null;
-      return p;
-    });
-  }, [layers, hiddenTypes]);
+    if (!detail.siteId) return;
+    const controller = new AbortController();
+    setDetail((s) => ({ ...s, status: "loading", data: null, error: null }));
+    getCandidateDetail(detail.siteId, controller.signal)
+      .then((data) => setDetail((s) => ({ ...s, status: "ok", data })))
+      .catch((error) => { if (error.name !== "AbortError") setDetail((s) => ({ ...s, status: "error", error })); });
+    return () => controller.abort();
+  }, [detail.siteId]);
 
-  // --- Handlers
+  const regionInfo = lookups.states.find((x) => x.state === region);
+  const homeView = useMemo(() => regionInfo
+    ? { bounds: [[regionInfo.bbox[0], regionInfo.bbox[1]], [regionInfo.bbox[2], regionInfo.bbox[3]]], padding: 40, maxZoom: 9, label: STATE_NAMES[region] || region }
+    : { bounds: US_BOUNDS, padding: 20, label: "the U.S." }, [regionInfo, region]);
+
   const nextKey = () => ++popupCounter.current;
-
-  const showHospitals = (list, lngLat) =>
-    setPopup({ key: nextKey(), kind: "hospitals", source: "hospitals", ids: list.map((h) => h.id), hospitals: list, lngLat });
-
+  const showHospitals = (list, lngLat) => setPopup({ key: nextKey(), kind: "hospitals", source: "hospitals", ids: list.map((h) => h.id), hospitals: list, lngLat });
   const showCandidate = (id, fly) => {
-    const feature = optimize.candidates.features.find((f) => f.id === id);
+    const feature = optimize.candidates.features.find((f) => String(f.id) === String(id));
     if (!feature) return;
-    const lngLat = feature.geometry.coordinates;
-    if (fly) mapApi.current?.focusOn(lngLat);
-    setPopup({ key: nextKey(), kind: "candidate", source: "candidates", ids: [id], lngLat });
-  };
-
-  // Ignore a close from a popup that has already been replaced by a newer one.
-  const closePopup = (key) => setPopup((p) => (p && p.key === key ? null : p));
-
-  const toggleLayer = (key) => {
-    setLayers((l) => ({ ...l, [key]: !l[key] }));
-    if (key === "heatmap" && populationLoad.status === "error") setPopulationLoad({ status: "idle", error: null });
+    if (fly) mapApi.current?.focusOn(feature.geometry.coordinates);
+    setPopup({ key: nextKey(), kind: "candidate", source: "candidates", ids: [feature.id], lngLat: feature.geometry.coordinates });
+    setDetail({ siteId: String(feature.id), status: "loading", data: null, error: null });
   };
 
   const normalizeWeights = () => {
     const total = Object.values(weights).reduce((a, b) => a + b, 0);
-    if (total <= 0) return;
-    setWeights(Object.fromEntries(Object.entries(weights).map(([key, v]) => [key, Math.round((v / total) * 100) / 100])));
+    if (total > 0) setWeights(Object.fromEntries(Object.entries(weights).map(([key, v]) => [key, Math.round(v / total * 1000) / 1000])));
   };
+  const changeFilter = (key, value) => setFilters((current) => ({ ...current, [key]: value }));
+  const toggleService = (id) => setFilters((current) => ({ ...current, services: current.services.includes(id) ? current.services.filter((x) => x !== id) : [...current.services, id] }));
+  const toggleLayer = (key) => setLayers((current) => ({ ...current, [key]: !current[key] }));
+  const toggleType = (type) => setHiddenTypes((current) => { const next = new Set(current); next.has(type) ? next.delete(type) : next.add(type); return next; });
 
-  const toggleType = (type) =>
-    setHiddenTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
-    });
-
-  // --- Derived values for the map
-  const selected = useMemo(() => (popup ? { source: popup.source, ids: popup.ids } : null), [popup]);
-
-  const allTypes = useMemo(() => [...new Set(hospitals?.features.map((f) => f.properties.type))], [hospitals]);
-  const visibleTypes = useMemo(
-    () => (hiddenTypes.size ? allTypes.filter((t) => !hiddenTypes.has(t)) : null),
-    [allTypes, hiddenTypes]
-  );
-
+  const allTypes = useMemo(() => [...new Set(hospitals.features.map((f) => f.properties.type).filter(Boolean))], [hospitals]);
+  const visibleTypes = useMemo(() => hiddenTypes.size ? allTypes.filter((t) => !hiddenTypes.has(t)) : null, [allTypes, hiddenTypes]);
+  const selected = popup ? { source: popup.source, ids: popup.ids } : null;
   const usedWeights = optimize.meta?.weights ?? weights;
   const popupView = useMemo(() => {
     if (!popup) return null;
-    if (popup.kind === "hospitals") {
-      return { key: popup.key, lngLat: popup.lngLat, content: <HospitalPopup hospitals={popup.hospitals} /> };
-    }
-    const feature = optimize.candidates.features.find((f) => f.id === popup.ids[0]);
-    if (!feature) return null;
-    return {
-      key: popup.key,
-      lngLat: popup.lngLat,
-      content: <CandidatePopup site={feature.properties} weights={usedWeights} />,
-    };
+    if (popup.kind === "hospitals") return { key: popup.key, lngLat: popup.lngLat, content: <HospitalPopup hospitals={popup.hospitals} /> };
+    const feature = optimize.candidates.features.find((f) => String(f.id) === String(popup.ids[0]));
+    return feature ? { key: popup.key, lngLat: popup.lngLat, content: <CandidatePopup site={feature.properties} weights={usedWeights} /> } : null;
   }, [popup, optimize.candidates, usedWeights]);
 
-  // --- Status line
   let status;
-  if (loadError) {
-    status = { kind: "error", text: loadError instanceof ApiUnavailable ? <ApiHelp error={loadError} /> : `Couldn't load map data: ${loadError.message}` };
-  } else if (query !== debouncedQuery || optimize.status === "loading") {
-    status = { kind: "busy", text: "Scoring candidate sites…" };
-  } else if (optimize.status === "error") {
-    status = {
-      kind: "error",
-      text: optimize.error instanceof ApiUnavailable ? <ApiHelp error={optimize.error} /> : `Couldn't score sites: ${optimize.error.message}`,
-    };
-  } else if (populationLoad.status === "loading") {
-    status = { kind: "busy", text: "Loading population for the heatmap…" };
-  } else if (populationLoad.status === "error") {
-    status = { kind: "error", text: `Couldn't load heatmap data: ${populationLoad.error.message}` };
-  } else if (optimize.meta) {
-    const m = optimize.meta;
-    const where = m.state ? STATE_NAMES[m.state] || m.state : "the U.S.";
-    status = {
-      kind: "",
-      text: (
-        <>
-          Top {optimize.candidates.features.length} of {fmt(m.candidates_considered)} tracts in {where} · {m.compute_ms} ms
-          {m.candidates_adding_coverage === 0 && (
-            <>
-              <br />
-              Every tract here already has a hospital within {m.radius_mi} mi, so only shortage and cost affect these
-              results. Try a smaller radius.
-            </>
-          )}
-        </>
-      ),
-    };
-  } else {
-    status = { kind: "busy", text: "Loading…" };
-  }
+  const error = lookups.error || layerLoad.error || optimize.error;
+  if (error) status = { kind: "error", text: error instanceof ApiUnavailable ? <ApiHelp error={error} /> : error.message };
+  else if (share !== debouncedShare || optimize.status === "loading") status = { kind: "busy", text: "Ranking Stage 8 candidate sites…" };
+  else status = { kind: "", text: <>{optimize.candidates.features.length} candidates shown{region ? ` in ${STATE_NAMES[region] || region}` : " in this view"} · {optimize.meta?.compute_ms ?? "—"} ms<br /><small>Stage 8 run {lookups.meta?.dataset_run_id || "loading"}</small></> };
+
+  const changeTextScale = (step) => {
+    const next = TEXT_SCALES[TEXT_SCALES.indexOf(textScale) + step];
+    if (!next) return; setTextScale(next); try { localStorage.setItem(TEXT_SCALE_KEY, String(next)); } catch { /* optional */ }
+  };
 
   return (
-    // --text-scale sizes the sidebar, legend and popup text (styles/map.css).
     <div className="map-layout" style={{ "--text-scale": textScale }}>
-      <title>MedMap: Map</title>
+      <title>MedMap: Stage 8 map</title>
       <div className="map-wrap">
-        <MedMap
-          ref={mapApi}
-          hospitals={hospitals}
-          population={population}
-          candidates={optimize.candidates}
-          ringRadius={optimize.meta?.radius_mi ?? radius}
-          radius={radius}
-          layers={layers}
-          heatmapMode={heatmapMode}
-          hospitalTypes={visibleTypes}
-          homeView={homeView}
-          theme={theme}
-          basemap={basemap}
-          selected={selected}
-          hoveredCandidate={hoveredCandidate}
-          popup={popupView}
-          onHospitalsClick={showHospitals}
-          onCandidateClick={(id) => showCandidate(id, false)}
-          onCandidateHover={setHoveredCandidate}
-          onPopupClose={closePopup}
-        />
-        {/* Top-right toolbar, as on the whiteboard sketch */}
+        <MedMap ref={mapApi} hospitals={hospitals} population={population} candidates={optimize.candidates}
+          ringRadius={0} radius={30} layers={layers} heatmapMode={heatmapMode} hospitalTypes={visibleTypes}
+          homeView={homeView} theme={theme} basemap={basemap} selected={selected} hoveredCandidate={hoveredCandidate}
+          popup={popupView} onViewportChange={setViewport} onHospitalsClick={showHospitals}
+          onCandidateClick={(id) => showCandidate(id, false)} onCandidateHover={setHoveredCandidate}
+          onPopupClose={(key) => setPopup((p) => p?.key === key ? null : p)} />
         <div className="map-toolbar">
           <div className="segmented" role="group" aria-label="Map style">
-            {[["streets", "Map"], ["satellite", "Satellite"]].map(([value, label]) => (
-              <button
-                key={value}
-                className="map-button"
-                type="button"
-                data-basemap={value}
-                aria-pressed={basemap === value}
-                onClick={() => setBasemap(value)}
-              >
-                {label}
-              </button>
-            ))}
+            {[["streets", "Map"], ["satellite", "Satellite"]].map(([value, label]) => <button key={value} className="map-button" type="button" data-basemap={value} aria-pressed={basemap === value} onClick={() => setBasemap(value)}>{label}</button>)}
           </div>
-          <button
-            className="map-button heatmap-button"
-            type="button"
-            aria-pressed={layers.heatmap}
-            onClick={() => toggleLayer("heatmap")}
-          >
-            <span className="heatmap-dot" aria-hidden="true" /> Heatmap
-          </button>
+          <button className="map-button heatmap-button" type="button" aria-pressed={layers.heatmap} onClick={() => toggleLayer("heatmap")}><span className="heatmap-dot" aria-hidden="true" /> Heatmap</button>
         </div>
-        <button
-          className="map-button sidebar-toggle"
-          id="sidebar-toggle"
-          type="button"
-          aria-controls="sidebar"
-          aria-expanded={sidebarOpen}
-          onClick={() => setSidebarOpen((o) => !o)}
-        >
-          Controls
-        </button>
+        <button className="map-button sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((v) => !v)}>Controls</button>
         <Legend heatmapMode={heatmapMode} basemap={basemap} />
       </div>
 
       <aside className={sidebarOpen ? "sidebar" : "sidebar closed"} id="sidebar" aria-label="Controls">
-        <div className="sidebar-top">
-          <TextSizeControl
-            scale={textScale}
-            canSmaller={textScale > TEXT_SCALES[0]}
-            canLarger={textScale < TEXT_SCALES[TEXT_SCALES.length - 1]}
-            onSmaller={() => changeTextScale(-1)}
-            onLarger={() => changeTextScale(1)}
-          />
-          <button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>
-            Close
-          </button>
-        </div>
+        <div className="sidebar-top"><TextSizeControl scale={textScale} canSmaller={textScale > TEXT_SCALES[0]} canLarger={textScale < TEXT_SCALES.at(-1)} onSmaller={() => changeTextScale(-1)} onLarger={() => changeTextScale(1)} /><button className="link-button sidebar-close" type="button" onClick={() => setSidebarOpen(false)}>Close</button></div>
         <StatusBar kind={status.kind}>{status.text}</StatusBar>
-
-        <Panel title="Region">
-          <RegionSelect states={states} value={region} onChange={setRegion} />
-        </Panel>
-
-        <Panel
-          title="Weights"
-          action={
-            <button className="link-button" id="reset-weights" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>
-              Reset
-            </button>
-          }
-        >
-          <WeightSliders
-            weights={weights}
-            onChange={(key, value) => setWeights((w) => ({ ...w, [key]: value }))}
-            onNormalize={normalizeWeights}
-          />
-        </Panel>
-
-        <Panel title="Placement">
-          <label className="field">
-            <span>Coverage radius <output>{radius} mi</output></span>
-            <input
-              id="radius-range"
-              type="range"
-              min={RADIUS.min}
-              max={RADIUS.max}
-              step="1"
-              value={radius}
-              onChange={(e) => setRadius(Number(e.target.value))}
-            />
-          </label>
-          <div className="field-row">
-            <NumberField id="radius-input" label="Radius (mi)" value={radius} min={RADIUS.min} max={RADIUS.max} onCommit={setRadius} />
-            <NumberField id="k-input" label="Sites" value={k} min={SITES.min} max={SITES.max} onCommit={setK} />
-          </div>
-        </Panel>
-
-        <Panel title="Recommended sites">
-          <ResultsList
-            theme={theme}
-            candidates={optimize.candidates}
-            activeId={hoveredCandidate}
-            onHover={setHoveredCandidate}
-            onSelect={(id) => showCandidate(id, true)}
-          />
-        </Panel>
-
-        <Panel title="Layers">
-          <LayerToggles
-            layers={layers}
-            onToggle={toggleLayer}
-            heatmapMode={heatmapMode}
-            onHeatmapMode={(mode) => {
-              setHeatmapMode(mode);
-              setLayers((l) => ({ ...l, heatmap: true }));
-            }}
-          />
-        </Panel>
-
-        <Panel title="Hospital types">
-          <HospitalTypeFilter hospitals={hospitals} hiddenTypes={hiddenTypes} onToggle={toggleType} />
-        </Panel>
+        <Panel title="Region"><RegionSelect states={lookups.states} value={region} onChange={setRegion} /></Panel>
+        <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, value) => setWeights((w) => ({ ...w, [key]: value }))} onNormalize={normalizeWeights} /></Panel>
+        <Panel title="Services"><ServiceFilters services={lookups.services} selected={filters.services} requireAll={filters.requireAllServices} onToggle={toggleService} onRequireAll={(v) => changeFilter("requireAllServices", v)} /></Panel>
+        <Panel title="Site filters"><ModelFilters filters={filters} onChange={changeFilter} limit={limit} onLimit={setLimit} /></Panel>
+        <Panel title="Recommended sites"><ResultsList theme={theme} candidates={optimize.candidates} activeId={hoveredCandidate} onHover={setHoveredCandidate} onSelect={(id) => showCandidate(id, true)} /></Panel>
+        <CandidateDetail state={detail} onClose={() => setDetail({ siteId: null, status: "idle", data: null, error: null })} />
+        <Panel title="Layers"><LayerToggles layers={layers} onToggle={toggleLayer} heatmapMode={heatmapMode} onHeatmapMode={(mode) => { setHeatmapMode(mode); setLayers((l) => ({ ...l, heatmap: true })); }} /></Panel>
+        <Panel title="Hospital types"><HospitalTypeFilter hospitals={hospitals} hiddenTypes={hiddenTypes} onToggle={toggleType} /></Panel>
       </aside>
     </div>
   );

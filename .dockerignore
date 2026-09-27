@@ -8,7 +8,6 @@ raw*
 **/*.pyc
 web/dist
 web_test
-src
 Prompts
 Planning Phase
 docker/*.ps1

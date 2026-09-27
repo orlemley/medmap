@@ -53,7 +53,7 @@ export function RegionSelect({ states, value, onChange }) {
       <select value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Entire U.S.</option>
         {options.map((s) => (
-          <option key={s.state} value={s.state}>{s.name} ({fmt(s.hospitals)} hospitals)</option>
+          <option key={s.state} value={s.state}>{s.name} ({fmt(s.candidate_count)} candidate sites)</option>
         ))}
       </select>
     </label>
@@ -158,7 +158,8 @@ export function ResultsList({ theme, candidates, activeId, onHover, onSelect }) 
               <span className="result-name">{p.county} County, {p.state}</span>
               <span className="result-score">{Number(p.score).toFixed(2)}</span>
               <span className="result-detail">
-                {fmt(p.uncovered_population)} people gain coverage · {p.avg_distance_reduction_mi} mi closer
+                {fmt(p.newly_accessible_population_30min ?? p.uncovered_population)} newly within 30 min
+                {p.proposed_beds ? ` · ${fmt(p.proposed_beds)} beds` : ""}
               </span>
             </button>
           </li>
@@ -168,10 +169,67 @@ export function ResultsList({ theme, candidates, activeId, onHover, onSelect }) 
   );
 }
 
+export function ServiceFilters({ services, selected, requireAll, onToggle, onRequireAll }) {
+  if (!services.length) return <p className="empty">Loading service definitions…</p>;
+  return (
+    <>
+      <div className="service-grid">
+        {services.map((service) => (
+          <label className="check" key={service.service_id}>
+            <input
+              type="checkbox"
+              checked={selected.includes(service.service_id)}
+              onChange={() => onToggle(service.service_id)}
+            />
+            <span>{service.service_name || service.service_id.replaceAll("_", " ")}</span>
+            <span className="count">{fmt(service.recommended_sites)}</span>
+          </label>
+        ))}
+      </div>
+      <label className="check filter-option">
+        <input type="checkbox" checked={requireAll} onChange={(e) => onRequireAll(e.target.checked)} />
+        Require every selected service
+      </label>
+    </>
+  );
+}
+
+export function ModelFilters({ filters, onChange, limit, onLimit }) {
+  return (
+    <div className="model-filters">
+      <div className="field-row">
+        <NumberField id="min-beds" label="Min beds" value={filters.minBeds} min={0} max={2000}
+          onCommit={(value) => onChange("minBeds", value)} />
+        <NumberField id="max-beds" label="Max beds (0 = any)" value={filters.maxBeds} min={0} max={2000}
+          onCommit={(value) => onChange("maxBeds", value)} />
+      </div>
+      <div className="field-row">
+        <NumberField id="result-limit" label="Map results" value={limit} min={1} max={500} onCommit={onLimit} />
+        <label className="field compact">
+          <span>Routing</span>
+          <select value={filters.routingRefined} onChange={(e) => onChange("routingRefined", e.target.value)}>
+            <option value="any">Any model</option>
+            <option value="refined">Routing refined</option>
+            <option value="estimated">Estimated</option>
+          </select>
+        </label>
+      </div>
+      <label className="field">
+        <span>Minimum score <output>{filters.minScore.toFixed(2)}</output></span>
+        <input type="range" min="0" max="1" step="0.05" value={filters.minScore}
+          onChange={(e) => onChange("minScore", Number(e.target.value))} />
+      </label>
+      <label className="check filter-option">
+        <input type="checkbox" checked={filters.diversify} onChange={(e) => onChange("diversify", e.target.checked)} />
+        Spread results geographically
+      </label>
+    </div>
+  );
+}
+
 const LAYER_LABELS = [
   ["hospitals", "Hospitals"],
   ["candidates", "Recommended sites"],
-  ["rings", "Coverage radius around sites"],
   ["heatmap", "Heatmap"],
 ];
 
@@ -187,7 +245,7 @@ export function LayerToggles({ layers, onToggle, heatmapMode, onHeatmapMode }) {
         <span>Heatmap shows</span>
         <select id="heatmap-mode" value={heatmapMode} onChange={(e) => onHeatmapMode(e.target.value)}>
           <option value="all">All population</option>
-          <option value="uncovered">Population outside the radius of any hospital</option>
+          <option value="uncovered">Population with longer existing-hospital distance</option>
         </select>
       </label>
     </>

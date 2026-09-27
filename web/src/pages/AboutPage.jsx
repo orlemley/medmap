@@ -8,10 +8,10 @@ const TEAM = [
 ];
 
 const BUILT_WITH = [
-  ["React", "Components for the pages, map controls and popups."],
+  ["React + Vite", "Components, production bundling, and the interactive planning interface."],
   ["MapLibre GL JS", "Open-source map rendering in the browser."],
   ["OpenFreeMap", "Free OpenStreetMap basemap tiles."],
-  ["Python", "Data loading and the API, standard library only."],
+  ["FastAPI + DuckDB", "A typed API over the processed Parquet datasets and scoring model."],
 ];
 
 export default function AboutPage() {

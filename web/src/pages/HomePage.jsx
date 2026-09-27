@@ -1,87 +1,103 @@
-import { Link } from "react-router";
+import { Link } from 'react-router'
+import '../styles/home.css'
 
 const STEPS = [
-  ["Map existing care", "About 5,300 hospitals from CMS, and the distance from every census tract to the nearest one."],
-  ["Score every tract", "Each of 83,000 census tracts is a candidate site, scored on the four factors below."],
-  ["Rank the best sites", "The top sites appear on the map with a full score breakdown. Move the sliders and they update."],
-];
+  ['01', 'Measure existing access', 'Combine hospital locations, population, vulnerability, workforce shortages, and travel access into a consistent national planning dataset.'],
+  ['02', 'Score candidate communities', 'Evaluate roughly 34,000 candidate locations with the Stage 8 model and retain the strongest options for interactive analysis.'],
+  ['03', 'Explore tradeoffs', 'Re-rank candidates instantly by changing priorities, services, bed capacity, state, routing quality, and diversification preferences.'],
+]
 
 const FACTORS = [
-  ["Population", "People within the coverage radius of the site who have no hospital within that radius today."],
-  ["Distance", "How many miles closer to a hospital those people would be, on average."],
-  ["Shortage", "Whether the site is in a federally designated Medically Underserved Area or primary-care shortage area."],
-  ["Cost", "Population density as a stand-in for land and build cost. Sparse areas score higher."],
-];
+  ['Access', 'How much practical access to care a proposed site could add.'],
+  ['Capacity', 'Whether existing nearby hospitals and beds appear sufficient for the population.'],
+  ['Vulnerability', 'Social vulnerability, health burden, and shortage-area evidence.'],
+  ['Configuration fit', 'How well the proposed hospital size and archetype fit the community.'],
+  ['Cost efficiency', 'Expected benefit relative to the scale of the proposed facility.'],
+  ['Drive access', 'Modeled travel-time improvement relative to existing hospitals.'],
+  ['Service fit', 'How strongly local service gaps support the recommended clinical mix.'],
+]
 
 const SOURCES = [
-  ["CMS Hospital General Information", "Existing hospitals: name, type, address, ZIP, rating"],
-  ["CDC PLACES (tract and ZCTA)", "Tract population and centroids; ZIP-area centroids used to place hospitals"],
-  ["HRSA MUA/P", "Medically Underserved Areas and Populations"],
-  ["HRSA HPSA (primary care)", "Health Professional Shortage Areas"],
-  ["USDA RUCA 2020", "Population density and rural-urban codes per tract"],
-];
+  'CMS hospital and service data',
+  'U.S. Census and ACS population data',
+  'CDC SVI and PLACES community indicators',
+  'HRSA health-professional shortage data',
+  'USDA rural–urban commuting classifications',
+  'Processed road-routing and accessibility outputs',
+]
 
 export default function HomePage() {
   return (
-    <>
-      <title>MedMap: Hospital Placement</title>
-      <main className="page">
-        <p className="eyebrow">TigerHacks26</p>
-        <h1>Where should the next hospital go?</h1>
-        <p className="lead">
-          MedMap recommends sites for a new hospital that would cut driving distance for the people farthest from
-          care and take pressure off existing hospitals. It combines census population, federal shortage-area
-          designations, and the locations of every hospital CMS tracks.
-        </p>
-        <div className="button-row">
-          <Link className="button" to="/map">Open the map</Link>
-          <a className="button secondary" href="#how">How it works</a>
+    <main className="home-page">
+      <section className="hero">
+        <div className="hero-content">
+          <p className="eyebrow">Evidence-informed hospital planning</p>
+          <h1>Find communities where a new hospital could make the greatest difference.</h1>
+          <p className="hero-copy">
+            Explore a national planning model built from public health, demographic,
+            hospital, workforce, and travel-access data—then tune its priorities to
+            match the question your team is asking.
+          </p>
+          <div className="hero-actions">
+            <Link className="btn btn-primary" to="/map">Explore the map</Link>
+            <Link className="btn btn-secondary" to="/about">Read the methodology</Link>
+          </div>
         </div>
+      </section>
 
-        <h2 id="how">How it works</h2>
-        <div className="card-grid">
-          {STEPS.map(([title, text], i) => (
-            <div className="card" key={title}>
-              <span className="step-number">{i + 1}</span>
+      <section className="home-section">
+        <p className="section-kicker">How it works</p>
+        <h2>From public data to an explainable shortlist</h2>
+        <div className="step-grid">
+          {STEPS.map(([number, title, body]) => (
+            <article className="step-card" key={number}>
+              <span className="step-number">{number}</span>
               <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
+              <p>{body}</p>
+            </article>
           ))}
         </div>
+      </section>
 
-        <h2>What gets weighed</h2>
-        <p>You choose how much each factor matters with sliders on the map page.</p>
-        <div className="card-grid">
-          {FACTORS.map(([title, text]) => (
-            <div className="card" key={title}>
+      <section className="home-section muted-section">
+        <p className="section-kicker">What the score considers</p>
+        <h2>Seven priorities, visible and adjustable</h2>
+        <div className="factor-grid">
+          {FACTORS.map(([title, body]) => (
+            <article className="factor-card" key={title}>
               <h3>{title}</h3>
-              <p>{text}</p>
-            </div>
+              <p>{body}</p>
+            </article>
           ))}
         </div>
+      </section>
 
-        <h2>Data sources</h2>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr><th>Source</th><th>Used for</th></tr>
-            </thead>
-            <tbody>
-              {SOURCES.map(([source, use]) => (
-                <tr key={source}><td>{source}</td><td>{use}</td></tr>
-              ))}
-            </tbody>
-          </table>
+      <section className="home-section data-section">
+        <div>
+          <p className="section-kicker">Data foundation</p>
+          <h2>Built from complementary public datasets</h2>
+          <p>
+            No single source can describe healthcare access. The processed model links
+            facility, population, health, vulnerability, shortage, rurality, and travel
+            measures into a common geographic view.
+          </p>
         </div>
+        <ul className="source-list">
+          {SOURCES.map(source => <li key={source}>{source}</li>)}
+        </ul>
+      </section>
 
-        <h2>Limitations</h2>
-        <p className="note">
-          This is a hackathon prototype. Distances are straight-line, not driving distance. Hospital locations are
-          ZIP-code centroids, not street addresses. The scoring on the map is a placeholder until the placement
-          algorithm is finished.
+      <section className="home-section caveat-section">
+        <h2>A planning aid, not a final site-selection decision</h2>
+        <p>
+          Results identify places worth deeper investigation. They do not replace local
+          demand forecasting, land and construction analysis, regulatory review,
+          community consultation, or clinical and financial due diligence. Candidate
+          hospital coordinates derived from Census geography are representative planning
+          points rather than surveyed parcels.
         </p>
-      </main>
-      <footer className="site-footer">MedMap · TigerHacks26</footer>
-    </>
-  );
+        <Link className="text-link" to="/map">Open the interactive model →</Link>
+      </section>
+    </main>
+  )
 }

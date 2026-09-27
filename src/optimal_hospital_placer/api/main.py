@@ -7,6 +7,8 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .db import connect, paths
 from .query import ALLOWED_SERVICES, candidate_where, default_limit_for_zoom, grid_cell_degrees
@@ -277,8 +279,18 @@ def services_v1(state: str | None = None) -> dict[str, Any]:
                     FROM final_candidates WHERE {where}""",
                 params,
             ).fetchone()
+            definition = con.execute(
+                """SELECT any_value(service_name), any_value(minimum_beds),
+                          any_value(recommendation_threshold), any_value(description)
+                   FROM service_recommendations WHERE service_id = ?""",
+                [service],
+            ).fetchone()
             rows.append({
                 "service_id":service,
+                "service_name":definition[0] or service.replace("_", " ").title(),
+                "minimum_beds":scalar(definition[1]),
+                "recommendation_threshold":scalar(definition[2]),
+                "description":definition[3],
                 "recommended_sites":int(row[0] or 0),
                 "gap_sites":int(row[1] or 0),
                 "mean_score":scalar(row[2]),
@@ -328,6 +340,15 @@ def candidate_detail(site_id: str, include_children: bool = True) -> dict[str, A
         if df.empty:
             raise HTTPException(status_code=404, detail={"code":"candidate_not_found","message":f"No candidate {site_id}"})
         candidate = record(df.iloc[0].to_dict())
+        if candidate.get("state_fips") is not None:
+            candidate.update(state_fields(candidate["state_fips"]))
+        county = (
+            candidate.get("county_name") or candidate.get("source_county_name") or
+            candidate.get("ruca_countyname23") or candidate.get("ruca_countyname20") or ""
+        )
+        if isinstance(county, str) and county.lower().endswith(" county"):
+            county = county[:-7]
+        candidate["county"] = county
 
         result: dict[str, Any] = {"candidate":candidate}
         if include_children:
@@ -457,6 +478,8 @@ def map_hospitals(
 
         clauses = [f"{lat_col} IS NOT NULL", f"{lon_col} IS NOT NULL"]
         params: list[Any] = []
+        if "facility_type" in cols:
+            clauses.append("lower(CAST(facility_type AS VARCHAR)) = 'hospital'")
         box = parse_bbox(bbox)
         if box:
             west,south,east,north = box
@@ -491,8 +514,17 @@ def map_hospitals(
     for r in df.to_dict(orient="records"):
         lat = scalar(r.get(lat_col)); lon = scalar(r.get(lon_col))
         props = record(r)
-        props.pop(lat_col, None); props.pop(lon_col, None)
+        props.pop(lat_col, None); props.pop(lon_col, None); props.pop("geometry", None)
         fid = str(props.get("facility_id") or props.get("id") or props.get("ccn") or len(features))
+        # Stable presentation aliases keep the GeoJSON useful to any map client
+        # without making it understand every upstream CMS column name.
+        props.setdefault("name", props.get("facility_name") or props.get("hospital_name") or props.get("name") or "Hospital")
+        props.setdefault("type", props.get("facility_type") or props.get("hospital_type") or "Hospital")
+        props.setdefault("address", props.get("address") or props.get("street") or props.get("street_address") or "")
+        props.setdefault("zip", props.get("zip") or props.get("zip_code") or "")
+        props.setdefault("emergency", bool(props.get("emergency_services") or props.get("has_emergency") or False))
+        props.setdefault("rating", props.get("rating") or props.get("hospital_overall_rating"))
+        props.setdefault("loc_quality", props.get("geocode_method") or "exact")
         features.append({"type":"Feature","id":fid,"geometry":{"type":"Point","coordinates":[lon,lat]},"properties":props})
     return feature_collection(features, count=len(features), bbox=parse_bbox(bbox), truncated=len(features)>=limit)
 
@@ -676,3 +708,25 @@ def compat_optimize(
     if include_hospitals:
         response["hospitals"] = compat_hospitals(state)
     return response
+
+
+# In a packaged demo the API can serve the Vite build on the same origin. In
+# development Vite still owns port 5173 and proxies /api to this application.
+WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+if WEB_DIST.is_dir():
+    assets = WEB_DIST / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets), name="web-assets")
+
+    @app.get("/{web_path:path}", include_in_schema=False)
+    def serve_web(web_path: str):
+        if web_path == "api" or web_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        requested = (WEB_DIST / web_path).resolve()
+        try:
+            requested.relative_to(WEB_DIST.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Not found")
+        if web_path and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(WEB_DIST / "index.html")

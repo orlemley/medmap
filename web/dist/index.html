@@ -18,8 +18,8 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <script type="module" crossorigin src="/assets/index-CcF_VwlP.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CerFD5nO.css">
+  <script type="module" crossorigin src="/assets/index-nA1Jxf-X.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DxxkHSj-.css">
 </head>
 <body>
   <!-- React replaces everything inside #root once the app starts. -->
@@ -36,11 +36,11 @@
         "<h1 style='font-size:28px'>Open MedMap through its server</h1>" +
         "<p>This page was opened as a file, which browsers don't allow for apps like this one.</p>" +
         "<ol style='line-height:1.8'>" +
-        "<li>Double-click <b>web/start.cmd</b> (Windows), or run <code>python web/api/server.py --open</code> from the project folder.</li>" +
+        "<li>Double-click <b>web/start.cmd</b> (Windows), or build the frontend and run <code>python -m uvicorn optimal_hospital_placer.api.main:app --app-dir src --port 8000</code>.</li>" +
         "<li>Your browser opens <b>http://127.0.0.1:8000/</b> automatically once the data has loaded.</li>" +
         "</ol>" +
-        "<p>Needs Python 3.8+. See README.md for details.</p>";
+        "<p>See DEPLOYMENT.md for development, Docker, and hosted deployment instructions.</p>";
     }
-  </script>
+  </script>
 </body>
 </html>

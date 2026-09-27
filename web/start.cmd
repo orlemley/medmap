@@ -20,5 +20,6 @@ if not defined PY (
   exit /b 1
 )
 
-%PY% web\api\server.py --open %*
+start "" http://127.0.0.1:8000/
+%PY% -m uvicorn optimal_hospital_placer.api.main:app --app-dir src --host 127.0.0.1 --port 8000 %*
 pause

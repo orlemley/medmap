@@ -7,8 +7,10 @@ const isHovered = ["boolean", ["feature-state", "hover"], false];
 
 export function heatmapWeight(mode, radius) {
   // Tract populations are mostly 1k-8k; scale so a typical tract is ~0.5.
-  const byPopulation = ["interpolate", ["linear"], ["get", "p"], 0, 0, 8000, 1];
-  return mode === "uncovered" ? ["case", [">", ["get", "d"], radius], byPopulation, 0] : byPopulation;
+  const byPopulation = ["interpolate", ["linear"], ["get", "population"], 0, 0, 8000, 1];
+  return mode === "uncovered"
+    ? ["case", [">", ["coalesce", ["get", "distance_to_nearest_hospital_miles"], 0], radius], byPopulation, 0]
+    : byPopulation;
 }
 
 export function heatmapIntensity(mode) {

@@ -3,7 +3,7 @@ import { getOptimize } from "../lib/api.js";
 import { EMPTY_FC } from "../lib/constants.js";
 
 /**
- * Calls /api/optimize whenever `params` changes. A newer request aborts the
+ * Calls the Stage 8 optimization endpoint whenever `params` changes. A newer request aborts the
  * older one, so a slow response can never overwrite a newer result.
  * On error the previous candidates stay on screen.
  */

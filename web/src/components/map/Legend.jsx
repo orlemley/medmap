@@ -39,10 +39,9 @@ export default function Legend({ heatmapMode, basemap }) {
             <span className="ramp ramp-candidate" />
             <span className="ramp-labels"><span>low</span><span>high</span></span>
           </div>
-          <div className="legend-row"><span className="swatch swatch-ring" />Coverage radius</div>
           <div className="legend-row"><span className="swatch swatch-border" />State border</div>
           <div className="legend-scale">
-            <span>{heatmapMode === "uncovered" ? "Population beyond radius" : "Population"}</span>
+            <span>{heatmapMode === "uncovered" ? "Population farther from existing care" : "Population"}</span>
             <span className="ramp ramp-heatmap" />
             <span className="ramp-labels"><span>fewer</span><span>more</span></span>
           </div>

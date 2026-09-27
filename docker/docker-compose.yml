@@ -11,13 +11,12 @@
 #   docker compose -f docker/docker-compose.yml down
 #
 # On Windows, docker/run-env.ps1 wraps these commands.
-# Settings (ports, cache size, OPTIMIZER_URL) go in docker/.env; see
-# docker/.env.example. Every setting has a default, so .env is optional.
+# Optional port overrides can go in docker/.env; defaults work without it.
 
 name: medmap
 
 services:
-  # The website and its JSON API, served by web/api/server.py.
+  # FastAPI serves both the Stage 8 API and the compiled Vite site.
   medmap:
     build:
       context: ..
@@ -26,11 +25,10 @@ services:
     ports:
       - "${MEDMAP_PORT:-8000}:8000"
     environment:
-      # Nationwide score tables are ~40 MB each; keep a few, not 16.
-      MEDMAP_CACHE_SIZE: ${MEDMAP_CACHE_SIZE:-6}
-      # Empty = the built-in placeholder scoring. Set it to another service's
-      # address (e.g. http://algorithm:8000) to use that service instead.
-      OPTIMIZER_URL: ${OPTIMIZER_URL:-}
+      OHP_PROJECT_ROOT: /app
+    volumes:
+      # Processed snapshots are deployment data, not baked into the image.
+      - ../data:/app/data:ro
     restart: unless-stopped
 
   # Hot-reload React dev server. Only starts with `--profile dev`.
@@ -55,29 +53,6 @@ services:
     depends_on:
       medmap:
         condition: service_healthy
-
-  # --- Adding the real algorithm later -------------------------------------
-  # When /algorithm has its own API (see algorithm_prompt.txt) and a
-  # Dockerfile, uncomment this and set OPTIMIZER_URL=http://algorithm:8000 in
-  # docker/.env. The website then gets its scores from the algorithm; nothing
-  # in web/ changes. It must serve GET /api/optimize with the same query
-  # parameters and response shape as the placeholder (README: API reference).
-  #
-  # algorithm:
-  #   build:
-  #     context: ..
-  #     dockerfile: algorithm/Dockerfile
-  #   expose:
-  #     - "8000"            # reachable by other containers only, not the host
-  #   healthcheck:
-  #     test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/optimize?k=1', timeout=10)"]
-  #     interval: 30s
-  #     start_period: 60s
-  #
-  # ...and add this under the medmap service so it starts after the algorithm:
-  #   depends_on:
-  #     algorithm:
-  #       condition: service_healthy
 
 volumes:
   web-node-modules:

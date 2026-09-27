@@ -5,8 +5,8 @@
 #   docker run --rm -p 8000:8000 medmap          -> http://localhost:8000
 # Or use docker/docker-compose.yml (see README "Running with Docker").
 #
-# Needs nothing from the host at runtime: the React site is built in stage 1,
-# and the data comes from web/api/medmap_data.json.gz (no raw/ folder needed).
+# The React site is built in stage 1. At runtime, mount the processed data/
+# snapshots at /app/data (as docker-compose.yml does).
 
 # ---- Stage 1: build the React site -----------------------------------------
 FROM node:24-slim AS web-build
@@ -21,8 +21,8 @@ COPY web/public ./public
 COPY web/src ./src
 RUN npm run build
 
-# ---- Stage 2: the Python server (standard library only) --------------------
-FROM python:3.13-slim
+# ---- Stage 2: FastAPI + DuckDB over the processed snapshots -----------------
+FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -33,9 +33,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 RUN useradd --create-home --uid 10001 medmap
 
-# Same layout as the repo, so server.py finds web/dist next to web/api.
-COPY web/api/*.py web/api/
-COPY web/api/medmap_data.json.gz web/api/
+# Keep the repository layout so the API finds /app/data and /app/web/dist.
+COPY src/optimal_hospital_placer/api/requirements.txt /tmp/api-requirements.txt
+RUN pip install --no-cache-dir -r /tmp/api-requirements.txt
+COPY src ./src
 COPY --from=web-build /web/dist web/dist
 
 USER 10001
@@ -43,6 +44,6 @@ EXPOSE 8000
 
 # python:slim has no curl, so check health with Python itself.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health' % os.environ.get('PORT', '8000'), timeout=4)"]
+  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/v1/health' % os.environ.get('PORT', '8000'), timeout=4)"]
 
-CMD ["python", "web/api/server.py"]
+CMD ["sh", "-c", "python -m uvicorn optimal_hospital_placer.api.main:app --app-dir src --host ${HOST} --port ${PORT}"]

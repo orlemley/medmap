@@ -76,7 +76,13 @@ def candidate_feature(row: dict[str, Any], rank: int | None = None, score: float
 
     # Backwards-compatible aliases for the current React prototype.
     props.setdefault("tract_id", props.get("source_tract_geoid"))
-    props.setdefault("county", props.get("county_name") or props.get("source_county_name") or "")
+    county = (
+        props.get("county_name") or props.get("source_county_name") or
+        props.get("ruca_countyname23") or props.get("ruca_countyname20") or ""
+    )
+    if isinstance(county, str) and county.lower().endswith(" county"):
+        county = county[:-7]
+    props.setdefault("county", county)
     props.setdefault("uncovered_population", props.get("newly_accessible_population_30min") or 0)
     props.setdefault("nearest_hospital_mi", props.get("nearest_existing_hospital_estimated_drive_miles"))
     mean_saved = props.get("population_weighted_mean_minutes_saved")

@@ -1,5 +1,11 @@
 # MedMap
 
+> **Current application:** the React/Vite frontend is integrated with the
+> FastAPI/DuckDB API and processed Stage 5/7/8 data. See
+> [DEPLOYMENT.md](DEPLOYMENT.md) for the supported local, Docker, and split-host
+> deployment paths. Some historical implementation notes later in this README
+> describe the retired prototype API and are retained only for context.
+
 A hospital-placement recommendation tool built for **TigerHacks26**.
 
 MedMap suggests where a new hospital should be built so that it cuts driving
@@ -8,9 +14,10 @@ hospitals. It combines census population, HRSA shortage-area designations
 (MUA/P and HPSA), and the locations of every hospital CMS tracks, and shows the
 results on an interactive map where you set how much each factor matters.
 
-> **Status:** the map, the pages and the API are working. The **placement
-> algorithm is still a placeholder** (see [Scoring](#scoring-placeholder)).
-> The real algorithm is planned for `/algorithm` (see `algorithm_prompt.txt`).
+> **Status:** the map, processed-data API, Stage 8 ranking model, service
+> recommendations, travel-access bands, and candidate configurations are wired
+> together. Results are planning evidence, not a substitute for detailed site,
+> clinical, regulatory, or financial analysis.
 
 ---
 

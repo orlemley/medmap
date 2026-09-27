@@ -733,6 +733,57 @@ input[type="checkbox"] {
   color: var(--text-muted);
 }
 
+/* --- Stage 8 controls and candidate detail --- */
+
+.service-grid { display: grid; gap: 3px; max-height: 230px; overflow-y: auto; }
+.service-grid .check { text-transform: capitalize; }
+.filter-option { margin-top: 10px; }
+.model-filters { display: grid; gap: 10px; }
+
+.candidate-detail {
+  margin: 0 -16px;
+  padding: 16px;
+  background: var(--surface-muted);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-heading { align-items: flex-start; margin-bottom: 12px; }
+.detail-heading .eyebrow { margin-bottom: 4px; font-size: calc(11px * var(--text-scale, 1)); }
+.detail-heading h2 { margin: 0; font-size: calc(17px * var(--text-scale, 1)); }
+.candidate-detail h3 { margin: 16px 0 7px; font-size: calc(14px * var(--text-scale, 1)); }
+
+.detail-facts {
+  display: grid;
+  grid-template-columns: minmax(90px, auto) 1fr;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: calc(13px * var(--text-scale, 1));
+}
+.detail-facts dt { color: var(--text-muted); }
+.detail-facts dd { margin: 0; overflow-wrap: anywhere; }
+.detail-table-wrap { overflow-x: auto; }
+.detail-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--text-scale, 1)); }
+.detail-table th, .detail-table td { padding: 5px; text-align: right; border-bottom: 1px solid var(--border); }
+.detail-table th:first-child, .detail-table td:first-child { text-align: left; }
+
+.service-detail-list, .configuration-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: calc(12px * var(--text-scale, 1));
+}
+.service-detail-list li, .configuration-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+}
+.service-detail-list small, .configuration-list span { display: block; color: var(--text-muted); }
+
 /* --- Popup colours follow the theme ---
    maplibre-gl.css loads after this file (with the map page), so these use an
    extra .map-wrap class to win. */
