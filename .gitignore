@@ -31,6 +31,8 @@
 
 # --- Generic large/data files ---
 *.csv
+# Validated facility locations from addresses/get_addr.ipynb; ETL Stage 3 reads them.
+!addresses/output/*.csv
 *.zip
 /data/raw/
 /data/stage1/
