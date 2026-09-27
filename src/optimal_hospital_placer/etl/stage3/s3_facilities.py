@@ -153,7 +153,12 @@ def geocode(frame, cache_dir, enabled, catalog=None, quality=None):
     cache_dir.mkdir(parents=True, exist_ok=True)
     benchmark = 'Public_AR_Current'
     address_keys, pending, cache = {}, {}, {}
-    for row in frame.to_dict('records'):
+    # Downstream access modeling and the current map consume hospital locations.
+    # Keep the complete registry, but avoid issuing and loading address-cache
+    # records for the much larger set of non-hospital providers.
+    hospitals = frame.loc[frame.facility_type.eq('hospital')]
+    print(f'Geocoding hospitals only: {len(hospitals):,} of {len(frame):,} registry facilities', flush=True)
+    for row in hospitals.to_dict('records'):
         address = [text(row[c]) for c in ('street', 'city', 'state', 'zip')]
         # Census returns street-interpolated locations, not guaranteed entrances.
         key = hashlib.sha256(json.dumps([benchmark, address]).encode()).hexdigest()

@@ -122,6 +122,11 @@ registry counts**, not certified counts of currently active facilities. Hospice,
 home-health and unclassified locations are flagged as possible offices.
 
 Census batch geocoding uses 1,000 records per request, below the 10,000 limit.
+The complete facility registry is retained, but active geocoding and cache loading
+are limited to rows classified as hospitals because those are the only facility
+locations consumed by the current access model and hospital-map API. Other
+provider categories remain in `facilities.parquet` with null authoritative
+coordinates unless a future feature adds a separately reviewed location source.
 Each batch gets up to five attempts for timeouts, connection errors, and HTTP
 408, 429, 500, 502, 503, or 504 responses. Delays between attempts are 15, 30,
 60, and 120 seconds; each attempt retains the 30-second connection and

@@ -255,10 +255,30 @@ def require_count(run: Path, field_path: tuple[str, ...], minimum: int, label: s
         raise RuntimeError(f"{label} produced only {int(value):,} rows; expected at least {minimum:,}")
 
 
+def require_geocoded_hospitals(stage3: Path) -> None:
+    """Enforce the Stage 3 contract required by downstream access modeling."""
+    quality_path = stage3 / "quality_report.json"
+    if not quality_path.is_file():
+        raise RuntimeError(f"Stage 3 did not publish {quality_path}")
+    geocoding = read_json(quality_path).get("facility_geocoding", {})
+    located = int(geocoding.get("hospitals_located", 0) or 0)
+    unlocated = int(geocoding.get("hospitals_unlocated", 0) or 0)
+    if located < 1:
+        raise RuntimeError(
+            "Stage 3 produced zero located hospitals, so Stage 6 cannot compute its baseline. "
+            "Geocoding is enabled by default; if --no-geocode was intentional, populate the "
+            "geocode cache first. Completed upstream stages remain cached. "
+            f"Stage 3 reported {located:,} located and {unlocated:,} unlocated hospitals."
+        )
+    print(f"Stage 3 location check: {located:,} hospitals located; {unlocated:,} unlocated.", flush=True)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--geocode", action="store_true",
-                        help="Allow Stage 3 to request missing Census/OSM geocodes; otherwise use caches only")
+    parser.add_argument(
+        "--geocode", action=argparse.BooleanOptionalAction, default=True,
+        help="Fetch missing Census/OSM hospital geocodes (default); --no-geocode uses cache only",
+    )
     parser.add_argument("--states", nargs="+", help="State FIPS codes; default is all states and DC")
     parser.add_argument("--boundary-dir", type=Path, default=ROOT / "data/reference/tiger2023")
     parser.add_argument("--geocode-cache", type=Path, default=ROOT / "data/reference/geocode_cache")
@@ -360,6 +380,7 @@ def main() -> int:
                                   ROOT / "data/stage3/latest_success.json", cache, force,
                                   boundary_identity(args.boundary_dir.resolve()))
         runs["stage3"] = portable_path(stage3)
+        require_geocoded_hospitals(stage3)
 
         stage4_args: list[Any] = ["--stage3-run", stage3]
         if args.skip_acs_download:
