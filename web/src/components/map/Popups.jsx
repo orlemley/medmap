@@ -1,5 +1,5 @@
-import { WEIGHTS } from "../../lib/constants.js";
-import { fmt } from "../../lib/format.js";
+import { fmt, points } from "../../lib/format.js";
+import { scoreBreakdown, topReasons } from "../../lib/weights.js";
 
 // How each hospital's position was found (web/api/geocode_hospitals.py,
 // docs/hospital-locations.md). Approximate ones are drawn as hollow rings.
@@ -52,26 +52,42 @@ export function HospitalPopup({ hospitals }) {
   );
 }
 
+/** "Mainly because A, and B." from the site's strongest factors. */
+function WhyThisSite({ reasons }) {
+  let text;
+  if (reasons.length === 2) text = `Mainly because ${reasons[0].reason}, and ${reasons[1].reason}.`;
+  else if (reasons.length === 1) text = `Mainly because ${reasons[0].reason}.`;
+  else text = "No single factor stands out: it earns moderate points across several.";
+  return (
+    <div className="why-site">
+      <h4>Why this site?</h4>
+      <p>{text}</p>
+    </div>
+  );
+}
+
 export function CandidatePopup({ site, weights }) {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0) || 1;
+  const rows = scoreBreakdown(site, weights);
+  const reasons = topReasons(rows);
   const flags = [site.in_mua && "MUA/P", site.in_hpsa && "HPSA"].filter(Boolean).join(", ") || "None";
   return (
     <div className="popup">
       <h3>#{site.rank}: {site.county} County, {site.state}</h3>
       <p className="sub">Census tract {site.tract_id} · {site.proposed_beds ?? "—"} proposed beds</p>
+      <WhyThisSite reasons={reasons} />
       <div className="breakdown">
-        {WEIGHTS.map(({ key, label }) => {
-          const factor = Number(site[key + "_score"] ?? 0);
-          const points = (weights[key] * factor) / total;
-          return (
-            <div className="breakdown-row" key={key} title={`${label}: factor ${factor.toFixed(2)} x weight ${weights[key]}`}>
-              <span>{label}</span>
-              <span className="breakdown-bar"><span style={{ width: `${(factor * 100).toFixed(0)}%` }} /></span>
-              <span className="breakdown-value">+{points.toFixed(2)}</span>
-            </div>
-          );
-        })}
-        <div className="total"><span>Score</span><span>{Number(site.score).toFixed(2)}</span></div>
+        {rows.map((row) => (
+          <div
+            className={reasons.includes(row) ? "breakdown-row top" : "breakdown-row"}
+            key={row.key}
+            title={`${row.label}: this site scores ${points(row.factor)} of 100 on it, and it counts for ${Math.round(row.share * 100)}% of the score`}
+          >
+            <span>{row.label}</span>
+            <span className="breakdown-bar"><span style={{ width: `${points(row.factor)}%` }} /></span>
+            <span className="breakdown-value">+{row.points}</span>
+          </div>
+        ))}
+        <div className="total"><span>Score</span><span>{points(site.score)} / 100</span></div>
       </div>
       <dl>
         <dt>New 30-min access</dt><dd>{fmt(site.newly_accessible_population_30min ?? site.uncovered_population)} people</dd>
@@ -82,7 +98,8 @@ export function CandidatePopup({ site, weights }) {
         <dt>Tract population</dt><dd>{fmt(site.tract_population)}</dd>
       </dl>
       <p className="caveat">
-        Bars show each Stage 8 component from 0 to 1. Select this site for services, access bands and configurations.
+        Each bar shows how this site rates on that factor; the number is the points it adds to the score.
+        Select this site for services, access bands and configurations.
         The circle is a representative planning point for an area, not a surveyed building parcel.
       </p>
     </div>

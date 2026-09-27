@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { STATE_NAMES, WEIGHTS } from "../../lib/constants.js";
-import { clampNumber, fmt, scoreColor, scoreTextColor } from "../../lib/format.js";
+import { clampNumber, fmt, points, scoreColor, scoreTextColor } from "../../lib/format.js";
+import { percentShares } from "../../lib/weights.js";
 
 export function Panel({ title, action, children }) {
   return (
@@ -60,21 +61,30 @@ export function RegionSelect({ states, value, onChange }) {
   );
 }
 
-export function WeightSliders({ weights, onChange, onNormalize }) {
-  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+/**
+ * One slider per factor, showing its share of the 100-point score. The shares
+ * always total 100%: `onChange(key, percent)` sets one, and the page scales
+ * the others to fit (lib/weights.js setShare).
+ */
+export function WeightSliders({ weights, onChange }) {
+  const percents = percentShares(weights);
   return (
     <>
+      <p className="help weights-intro">
+        How much each factor counts toward a site's 100-point score. Raising one lowers the others.
+      </p>
       {WEIGHTS.map(({ key, label, help }) => (
         <div className="weight" key={key}>
           <label className="field">
-            <span>{label} <output>{weights[key].toFixed(2)}</output></span>
+            <span>{label} <output>{percents[key]}%</output></span>
             <input
               id={`w-${key}`}
               type="range"
               min="0"
-              max="1"
-              step="0.01"
-              value={weights[key]}
+              max="100"
+              step="1"
+              value={percents[key]}
+              aria-valuetext={`${percents[key]} percent`}
               aria-describedby={`w-${key}-help`}
               onChange={(e) => onChange(key, Number(e.target.value))}
             />
@@ -82,15 +92,6 @@ export function WeightSliders({ weights, onChange, onNormalize }) {
           <p className="help" id={`w-${key}-help`}>{help}</p>
         </div>
       ))}
-      <div
-        className={Math.abs(total - 1) > 0.05 ? "weight-total off" : "weight-total"}
-        title="Weights are scaled to total 1 when scoring, so this only needs to be roughly 1."
-      >
-        <span>Total <strong id="weight-total">{total.toFixed(2)}</strong></span>
-        <button className="link-button" id="normalize-weights" type="button" onClick={onNormalize} disabled={total <= 0}>
-          Make total 1
-        </button>
-      </div>
     </>
   );
 }
@@ -156,7 +157,7 @@ export function ResultsList({ theme, candidates, activeId, onHover, onSelect }) 
                 {p.rank}
               </span>
               <span className="result-name">{p.county} County, {p.state}</span>
-              <span className="result-score">{Number(p.score).toFixed(2)}</span>
+              <span className="result-score" title={`Score ${points(p.score)} out of 100`}>{points(p.score)}</span>
               <span className="result-detail">
                 {fmt(p.newly_accessible_population_30min ?? p.uncovered_population)} newly within 30 min
                 {p.proposed_beds ? ` · ${fmt(p.proposed_beds)} beds` : ""}
@@ -215,9 +216,10 @@ export function ModelFilters({ filters, onChange, limit, onLimit }) {
         </label>
       </div>
       <label className="field">
-        <span>Minimum score <output>{filters.minScore.toFixed(2)}</output></span>
-        <input type="range" min="0" max="1" step="0.05" value={filters.minScore}
-          onChange={(e) => onChange("minScore", Number(e.target.value))} />
+        {/* Shown out of 100; the API and share links keep the 0-1 value. */}
+        <span>Minimum score <output>{points(filters.minScore)} / 100</output></span>
+        <input type="range" min="0" max="100" step="5" value={points(filters.minScore)}
+          onChange={(e) => onChange("minScore", Number(e.target.value) / 100)} />
       </label>
       <label className="check filter-option">
         <input type="checkbox" checked={filters.diversify} onChange={(e) => onChange("diversify", e.target.checked)} />

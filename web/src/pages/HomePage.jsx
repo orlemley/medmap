@@ -1,4 +1,5 @@
 import { Link } from 'react-router'
+import { WEIGHTS } from '../lib/constants.js'
 import '../styles/home.css'
 
 const STEPS = [
@@ -7,15 +8,8 @@ const STEPS = [
   ['03', 'Explore tradeoffs', 'Re-rank candidates instantly by changing priorities, services, bed capacity, state, routing quality, and diversification preferences.'],
 ]
 
-const FACTORS = [
-  ['Access', 'How much practical access to care a proposed site could add.'],
-  ['Capacity', 'Whether existing nearby hospitals and beds appear sufficient for the population.'],
-  ['Vulnerability', 'Social vulnerability, health burden, and shortage-area evidence.'],
-  ['Configuration fit', 'How well the proposed hospital size and archetype fit the community.'],
-  ['Cost efficiency', 'Expected benefit relative to the scale of the proposed facility.'],
-  ['Drive access', 'Modeled travel-time improvement relative to existing hospitals.'],
-  ['Service fit', 'How strongly local service gaps support the recommended clinical mix.'],
-]
+// Same names and descriptions as the map's weight sliders (lib/constants.js).
+const FACTORS = WEIGHTS.map(({ label, help }) => [label, `${help}.`])
 
 const SOURCES = [
   'CMS hospital and service data',

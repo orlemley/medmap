@@ -58,10 +58,46 @@ export function themedPaint(theme, basemap) {
   };
 }
 
+// Place names (countries, states, cities, towns) from the basemap style. The
+// dark style draws them in dim grey and the light style in black, which is hard
+// to read on dark ground, so dark mode and satellite photos show them in white.
+// Road and water names keep the style's own colours.
+const PLACE_LABEL_PAINT = ["text-color", "text-halo-color", "text-halo-width", "text-halo-blur"];
+const BRIGHT_PLACE_LABELS = {
+  "text-color": "#f8fafc",
+  "text-halo-color": "rgba(15, 23, 42, 0.9)",
+  "text-halo-width": 1.5,
+  "text-halo-blur": 0.5,
+};
+// The current style's own place-label paint, saved by rememberPlaceLabels
+// so the light street map can switch back to it.
+const originalPlaceLabels = new WeakMap();
+
+function rememberPlaceLabels(map) {
+  const labels = map.getStyle().layers
+    .filter((layer) => layer.type === "symbol" && layer["source-layer"] === "place")
+    .map((layer) => ({
+      id: layer.id,
+      paint: Object.fromEntries(PLACE_LABEL_PAINT.map((property) => [property, layer.paint?.[property]])),
+    }));
+  originalPlaceLabels.set(map, labels);
+}
+
+function applyPlaceLabelPaint(map, theme, basemap) {
+  const bright = theme === "dark" || basemap === "satellite";
+  for (const { id, paint } of originalPlaceLabels.get(map) ?? []) {
+    // `undefined` resets a property to MapLibre's default, as in the original style.
+    for (const property of PLACE_LABEL_PAINT) {
+      map.setPaintProperty(id, property, bright ? BRIGHT_PLACE_LABELS[property] : paint[property]);
+    }
+  }
+}
+
 export function applyThemedPaint(map, theme, basemap) {
   for (const [layer, paint] of Object.entries(themedPaint(theme, basemap))) {
     for (const [property, value] of Object.entries(paint)) map.setPaintProperty(layer, property, value);
   }
+  applyPlaceLabelPaint(map, theme, basemap);
 }
 
 /**
@@ -85,6 +121,8 @@ function firstOfFinalLabels(map) {
 export function addSourcesAndLayers(map, { theme, basemap, heatmapMode, radius }) {
   const paint = themedPaint(theme, basemap);
   const labels = firstOfFinalLabels(map);
+  rememberPlaceLabels(map);
+  applyPlaceLabelPaint(map, theme, basemap);
 
   for (const id of ["hospitals", "candidates", "rings", "population"]) {
     map.addSource(id, { type: "geojson", data: EMPTY_FC });

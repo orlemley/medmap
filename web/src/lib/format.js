@@ -2,6 +2,9 @@ import { MARKER_COLORS } from "./constants.js";
 
 export const fmt = (n) => Number(n).toLocaleString("en-US");
 
+/** A 0-1 score from the API as a whole number of points out of 100. */
+export const points = (score) => Math.round(Number(score) * 100);
+
 export function clampNumber(raw, min, max, fallback, decimals = 0) {
   const n = Number(raw);
   if (raw === null || raw === undefined || raw === "" || !Number.isFinite(n)) return fallback;

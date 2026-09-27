@@ -1,6 +1,9 @@
-import { fmt } from "../../lib/format.js";
+import { fmt, points } from "../../lib/format.js";
 
-const value = (v, suffix = "") => v === null || v === undefined || v === "" ? "—" : `${fmt(v)}${suffix}`;
+const missing = (v) => v === null || v === undefined || v === "";
+const value = (v, suffix = "") => missing(v) ? "—" : `${fmt(v)}${suffix}`;
+// 0-1 scores from the API, shown out of 100 like the rest of the page.
+const score = (v, suffix = "") => missing(v) ? "—" : `${points(v)}${suffix}`;
 
 export default function CandidateDetail({ state, onClose }) {
   if (!state.siteId) return null;
@@ -20,7 +23,7 @@ export default function CandidateDetail({ state, onClose }) {
       {candidate && (
         <>
           <dl className="detail-facts">
-            <dt>Stage 8 score</dt><dd>{value(candidate.stage8_score)}</dd>
+            <dt>Score (default weights)</dt><dd>{score(candidate.stage8_score, " / 100")}</dd>
             <dt>Configuration</dt><dd>{candidate.configuration_name || candidate.configuration_id || "—"}</dd>
             <dt>Proposed beds</dt><dd>{value(candidate.proposed_beds)}</dd>
             <dt>Recommended services</dt><dd>{candidate.recommended_services || "—"}</dd>
@@ -44,7 +47,7 @@ export default function CandidateDetail({ state, onClose }) {
             {(data.services || []).filter((service) => service.recommended).map((service) => (
               <li key={service.service_id}>
                 <span><strong>{service.service_name}</strong><small>{service.description}</small></span>
-                <span>{Number(service.service_score).toFixed(2)}{service.service_gap ? " · gap" : ""}</span>
+                <span title="Local demand for this service, out of 100">{score(service.service_score, "/100")}{service.service_gap ? " · gap" : ""}</span>
               </li>
             ))}
           </ul>
@@ -56,7 +59,7 @@ export default function CandidateDetail({ state, onClose }) {
                 {data.configurations.slice(0, 5).map((config, index) => (
                   <li key={config.configuration_id || index}>
                     <strong>{config.configuration_name || config.configuration_id}</strong>
-                    <span>{value(config.proposed_beds)} beds · score {value(config.overall_score)}</span>
+                    <span>{value(config.proposed_beds)} beds · score {score(config.overall_score)}</span>
                   </li>
                 ))}
               </ul>

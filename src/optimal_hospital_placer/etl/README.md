@@ -31,11 +31,12 @@ From the repository root:
 # Reproduce the latest large nationwide profile (about 34k Stage 8 sites):
 python src/optimal_hospital_placer/etl/run_etl.py
 
-# Also geocode addresses that are missing from the existing cache:
-python src/optimal_hospital_placer/etl/run_etl.py --geocode
+# Missing hospital addresses are geocoded by default because Stage 6 requires
+# authoritative hospital coordinates:
+python src/optimal_hospital_placer/etl/run_etl.py
 
 # Restrict the final geographic assembly to Illinois:
-python src/optimal_hospital_placer/etl/run_etl.py --states 17 --geocode
+python src/optimal_hospital_placer/etl/run_etl.py --states 17
 ```
 
 Runs Stages 1–5, the Stage 6A screen, and Stages 6–8 using the same Python
@@ -58,16 +59,15 @@ Stages 6/8 fall below 20,000 sites. This catches accidental sample collapse;
 `--allow-small-output` disables the guard, and `--states` disables nationwide
 floors automatically.
 
-Every invocation rebuilds the stages in new run directories. ACS preparation
-reuses its checksum-verified checkpoints. Previous
-outputs remain intact, and stage 3 reuses the geocode cache. This runner does not
-add checkpoint resumption. Stage 3 retries temporary geocoding failures as
-described in its README. Avoid concurrent ETL runs using the
-same output directories or cache.
+Matching completed stages are reused from validated checkpoints. Previous
+outputs remain intact, and Stage 3 reuses its persistent geocode cache. Stage 3
+retries temporary geocoding failures as described in its README. Avoid concurrent
+ETL runs using the same output directories or cache.
 
 The final directory printed by the runner is the Stage 8 run containing final
 candidates, service recommendations, travel-access bands, and the precise-routing
-queue. Without `--geocode`, only cached facility coordinates are available.
+queue. `--no-geocode` is an explicit offline/cache-only mode; it succeeds only
+when the existing cache still produces at least one located hospital.
 `--boundary-dir` and `--geocode-cache` override the reference directories.
 
 The runner was not executed during implementation.
