@@ -194,21 +194,6 @@ export default function MedMap({
       const layers = ["candidate-labels", "candidates"].filter((id) => map.getLayer(id));
       return layers.length ? map.queryRenderedFeatures(point, { layers }) : [];
     };
-    const handledCandidateClicks = new WeakSet();
-    const selectCandidate = (e) => {
-      if (e.originalEvent && handledCandidateClicks.has(e.originalEvent)) return;
-      if (e.originalEvent) handledCandidateClicks.add(e.originalEvent);
-      const id = candidateId(e.features?.[0]);
-      if (id !== null) latest.current.onCandidateClick(id);
-    };
-    const handleCanvasClick = (event) => {
-      const rect = map.getCanvas().getBoundingClientRect();
-      const feature = candidatesAt({ x: event.clientX - rect.left, y: event.clientY - rect.top })[0];
-      if (feature) selectCandidate({ originalEvent: event, features: [feature] });
-    };
-    // Capture the physical canvas click because MapLibre's delegated click
-    // dispatch is unreliable for these overlapping circle and symbol layers.
-    map.getCanvas().addEventListener("click", handleCanvasClick, true);
     let hoveredHospital = null;
     const setHospitalHover = (id) => {
       if (hoveredHospital === id) return;
@@ -233,7 +218,6 @@ export default function MedMap({
       });
       for (const layer of ["candidates", "candidate-labels"]) {
         map.on("mousemove", layer, (e) => latest.current.onCandidateHover(candidateId(e.features[0])));
-        map.on("click", layer, selectCandidate);
         map.on("mouseleave", layer, () => {
           map.getCanvas().style.cursor = "";
           latest.current.onCandidateHover(null);
@@ -246,9 +230,11 @@ export default function MedMap({
       });
     };
 
+    // A symbol label is rendered above its circle and can receive the physical
+    // click, so query both layers at the point rather than using layer events.
     map.on("click", (e) => {
-      const feature = candidatesAt(e.point)[0];
-      if (feature) selectCandidate({ ...e, features: [feature] });
+      const id = candidateId(candidatesAt(e.point)[0]);
+      if (id !== null) latest.current.onCandidateClick(id);
     });
 
     // Fires for the first style and after every theme switch. Our sources and
@@ -267,7 +253,6 @@ export default function MedMap({
 
     return () => {
       setLoaded(false);
-      map.getCanvas().removeEventListener("click", handleCanvasClick, true);
       map.remove();
       mapRef.current = null;
       resetControl.current = null;
