@@ -88,7 +88,7 @@ def main():
                              ['fips_st_cnty', 'rural_urban_contnm_23', 'hpsa_prim_care_25', 'hpsa_dent_25', 'hpsa_mentl_hlth_25'], crosswalks)
         print('Building facility registry', flush=True)
         facilities = registry(catalog, states, run)
-        facilities = assign(geocode(facilities, cache, args.geocode), tracts, counties)
+        facilities = assign(geocode(facilities, cache, args.geocode, catalog, quality), tracts, counties)
         print('Overlaying MUA/P component boundaries', flush=True)
         designations = load_designations(catalog, run, quality, inputs)
         tracts = overlay_features(tracts, 'tract_geoid', designations, run)
@@ -110,7 +110,8 @@ def main():
                        facilities_with_shared_ccn=int(facilities.ccn_multiple_locations.sum()),
                        limitations=['Exact-identifier joins do not reallocate changed boundaries; unmatched records retained.',
                                     'Facility status and same-provider alternative addresses require review; counts are registry counts.',
-                                    'Census geocodes are interpolated street locations, not verified entrances.',
+                                    'Census geocodes are interpolated street locations, not verified entrances; OSM fallbacks are named mapped facilities.',
+                                    'ZIP centroids are display/search fallbacks only and are excluded from modeled facility coordinates.',
                                     'MUA/P fractions measure boundary footprint, including water, not population or land-only coverage.',
                                     'HPSA component records retained separately; no tract HPSA coverage inferred.',
                                     'AHRF feature selection is limited unless --ahrf-columns is supplied.'])

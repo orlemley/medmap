@@ -14,6 +14,7 @@ import requests
 from shapely.geometry import Point
 
 from s3_common import STATES, read_json, save_json, save_table, text
+from s3_geocode_fallbacks import enrich_hospital_geocodes
 
 
 def request_geocode_batch(payload, benchmark, batch_number):
@@ -148,7 +149,7 @@ def registry(catalog, states, run):
     return frame
 
 
-def geocode(frame, cache_dir, enabled):
+def geocode(frame, cache_dir, enabled, catalog=None, quality=None):
     cache_dir.mkdir(parents=True, exist_ok=True)
     benchmark = 'Public_AR_Current'
     address_keys, pending, cache = {}, {}, {}
@@ -204,13 +205,29 @@ def geocode(frame, cache_dir, enabled):
     frame = frame.copy()
     frame['geocode_cache_key'] = frame.facility_id.map(address_keys)
     frame['geocode_status'] = frame.geocode_cache_key.map(lambda k: cache.get(k, {}).get('status', 'not_geocoded'))
-    frame['geocode_method'] = frame.geocode_cache_key.map(lambda k: 'census_street_interpolation' if k in cache else None)
+    frame['geocode_method'] = frame.geocode_cache_key.map(
+        lambda k: 'census_street_interpolation' if cache.get(k, {}).get('status') == 'Match' else None)
     frame['longitude'] = frame.geocode_cache_key.map(lambda k: cache.get(k, {}).get('longitude'))
     frame['latitude'] = frame.geocode_cache_key.map(lambda k: cache.get(k, {}).get('latitude'))
     frame['geocode_fetched_utc'] = frame.geocode_cache_key.map(lambda k: cache.get(k, {}).get('fetched_utc'))
     geometry = [Point(lon, lat) if pd.notna(lon) and pd.notna(lat) else None
                 for lon, lat in zip(frame.longitude, frame.latitude)]
-    return gpd.GeoDataFrame(frame, geometry=geometry, crs=4326)
+    frame = gpd.GeoDataFrame(frame, geometry=geometry, crs=4326)
+    original_ids = frame.facility_id.copy()
+    original_count = len(frame)
+    frame, fallback_counts = enrich_hospital_geocodes(
+        frame, cache_dir, enabled, catalog, benchmark, request_geocode_batch)
+    if len(frame) != original_count or not frame.facility_id.equals(original_ids):
+        raise ValueError('Fallback geocoding changed the facility registry identity contract')
+    if quality is not None:
+        quality['facility_geocoding'] = {
+            'census_street_interpolation': int(frame.geocode_method.eq('census_street_interpolation').sum()),
+            **fallback_counts,
+            'hospitals_located': int((frame.facility_type.eq('hospital') & frame.geometry.notna()).sum()),
+            'hospitals_unlocated': int((frame.facility_type.eq('hospital') & frame.geometry.isna()).sum()),
+            'approximate_display_fallbacks': int(frame.fallback_longitude.notna().sum()),
+        }
+    return gpd.GeoDataFrame(frame, geometry='geometry', crs=4326)
 
 
 def assign(frame, tracts, counties):

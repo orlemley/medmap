@@ -12,6 +12,8 @@ const BUILT_WITH = [
   ["MapLibre GL JS", "Open-source map rendering in the browser."],
   ["OpenFreeMap", "Free OpenStreetMap basemap tiles."],
   ["FastAPI + DuckDB", "A typed API over the processed Parquet datasets and scoring model."],
+  ["USGS National Map", "Public-domain satellite and aerial photos."],
+  ["U.S. Census Geocoder + OpenStreetMap", "Layered, provenance-preserving hospital location matching."],
 ];
 
 export default function AboutPage() {

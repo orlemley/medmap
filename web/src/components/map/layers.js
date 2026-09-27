@@ -4,6 +4,9 @@ import { EMPTY_FC, MARKER_COLORS, SATELLITE_BORDER } from "../../lib/constants.j
 // Highlighting reads feature-state, so hover/selection never changes layer paint.
 const isSelected = ["boolean", ["feature-state", "selected"], false];
 const isHovered = ["boolean", ["feature-state", "hover"], false];
+// Hospitals whose address couldn't be matched to a map (web/api/geocode_hospitals.py)
+// sit at their ZIP code's centre, so they're drawn as hollow rings.
+const isApproximate = ["in", ["get", "loc_quality"], ["literal", ["zcta", "zcta_centroid", "zip3", "county", "approximate"]]];
 
 export function heatmapWeight(mode, radius) {
   // Tract populations are mostly 1k-8k; scale so a typical tract is ~0.5.
@@ -38,7 +41,8 @@ export function themedPaint(theme, basemap) {
   return {
     hospitals: {
       "circle-color": ["case", isSelected, c.hospitalSelected, isHovered, c.hospitalHover, c.hospital],
-      "circle-stroke-color": ["case", isSelected, c.selectedStroke, "#ffffff"],
+      "circle-opacity": ["case", isSelected, 1, isHovered, 1, isApproximate, 0.15, 1],
+      "circle-stroke-color": ["case", isSelected, c.selectedStroke, isApproximate, c.hospital, "#ffffff"],
     },
     candidates: {
       "circle-color": ["interpolate", ["linear"], ["get", "score"], 0, c.candidateLow, 1, c.candidateHigh],
@@ -180,7 +184,7 @@ export function addSourcesAndLayers(map, { theme, basemap, heatmapMode, radius }
         3, ["case", isSelected, 7, isHovered, 6, 2.5],
         10, ["case", isSelected, 12, isHovered, 10, 7],
       ],
-      "circle-stroke-width": ["case", isSelected, 2, 1],
+      "circle-stroke-width": ["case", isSelected, 2, isApproximate, 2, 1],
     },
   });
 

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "../config.js";
 import Legend from "../components/map/Legend.jsx";
+import SitesPanel from "../components/map/SitesPanel.jsx";
 import MedMap from "../components/map/MedMap.jsx";
 import { CandidatePopup, HospitalPopup } from "../components/map/Popups.jsx";
 import CandidateDetail from "../components/sidebar/CandidateDetail.jsx";
 import {
-  HospitalTypeFilter, LayerToggles, ModelFilters, Panel, RegionSelect, ResultsList,
+  HospitalTypeFilter, LayerToggles, ModelFilters, Panel, RegionSelect,
   ServiceFilters, StatusBar, TextSizeControl, WeightSliders,
 } from "../components/sidebar/Controls.jsx";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
@@ -55,6 +56,24 @@ function ApiHelp({ error }) {
 }
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
+
+// Map style (satellite or street map) and heatmap on/off, remembered per
+// browser. First-time visitors get satellite photos with the heatmap on.
+const MAP_VIEW_KEY = "medmap-map-view";
+const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true };
+function readMapView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MAP_VIEW_KEY));
+    return {
+      basemap: saved?.basemap === "streets" || saved?.basemap === "satellite" ? saved.basemap : DEFAULT_MAP_VIEW.basemap,
+      heatmap: typeof saved?.heatmap === "boolean" ? saved.heatmap : DEFAULT_MAP_VIEW.heatmap,
+    };
+  } catch {
+    return DEFAULT_MAP_VIEW;
+  }
+}
+
+// Text size for the sidebar, legend and popups, remembered per browser.
 const TEXT_SCALE_KEY = "medmap-text-scale";
 function readTextScale() {
   try { const n = Number(localStorage.getItem(TEXT_SCALE_KEY)); return TEXT_SCALES.includes(n) ? n : 1; }
@@ -68,11 +87,12 @@ export default function MapPage() {
   const [limit, setLimit] = useState(initial.limit);
   const [filters, setFilters] = useState(initial.filters);
   const [viewport, setViewport] = useState(null);
-  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: false, heatmap: false });
+  const [initialView] = useState(readMapView);
+  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: false, heatmap: initialView.heatmap });
   const [heatmapMode, setHeatmapMode] = useState("all");
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => !isPhone());
-  const [basemap, setBasemap] = useState("streets");
+  const [basemap, setBasemap] = useState(initialView.basemap);
   const [textScale, setTextScale] = useState(readTextScale);
   const { theme } = useTheme();
 
@@ -80,6 +100,29 @@ export default function MapPage() {
   const [hospitals, setHospitals] = useState(EMPTY_FC);
   const [population, setPopulation] = useState(EMPTY_FC);
   const [layerLoad, setLayerLoad] = useState({ hospitals: "idle", population: "idle", error: null });
+
+  // Remember the map style and heatmap for next time.
+  useEffect(() => {
+    try {
+      localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ basemap, heatmap: layers.heatmap }));
+    } catch {
+      // not saved; still works for this visit
+    }
+  }, [basemap, layers.heatmap]);
+
+  // Step from the latest size (not this render's), so quick repeated clicks all count.
+  const changeTextScale = (step) =>
+    setTextScale((current) => {
+      const i = TEXT_SCALES.indexOf(current) + step;
+      return i < 0 || i >= TEXT_SCALES.length ? current : TEXT_SCALES[i];
+    });
+  useEffect(() => {
+    try {
+      localStorage.setItem(TEXT_SCALE_KEY, String(textScale));
+    } catch {
+      // still applies for this visit
+    }
+  }, [textScale]);
   const [hoveredCandidate, setHoveredCandidate] = useState(null);
   const [popup, setPopup] = useState(null);
   const [detail, setDetail] = useState({ siteId: null, status: "idle", data: null, error: null });
@@ -183,11 +226,6 @@ export default function MapPage() {
   else if (share !== debouncedShare || optimize.status === "loading") status = { kind: "busy", text: "Ranking Stage 8 candidate sites…" };
   else status = { kind: "", text: <>{optimize.candidates.features.length} candidates shown{region ? ` in ${STATE_NAMES[region] || region}` : " in this view"} · {optimize.meta?.compute_ms ?? "—"} ms<br /><small>Stage 8 run {lookups.meta?.dataset_run_id || "loading"}</small></> };
 
-  const changeTextScale = (step) => {
-    const next = TEXT_SCALES[TEXT_SCALES.indexOf(textScale) + step];
-    if (!next) return; setTextScale(next); try { localStorage.setItem(TEXT_SCALE_KEY, String(next)); } catch { /* optional */ }
-  };
-
   return (
     <div className="map-layout" style={{ "--text-scale": textScale }}>
       <title>MedMap: Stage 8 map</title>
@@ -204,7 +242,27 @@ export default function MapPage() {
           </div>
           <button className="map-button heatmap-button" type="button" aria-pressed={layers.heatmap} onClick={() => toggleLayer("heatmap")}><span className="heatmap-dot" aria-hidden="true" /> Heatmap</button>
         </div>
-        <button className="map-button sidebar-toggle" type="button" aria-controls="sidebar" aria-expanded={sidebarOpen} onClick={() => setSidebarOpen((v) => !v)}>Controls</button>
+        {/* Top-left: the phone-only Controls button, then the recommended sites */}
+        <div className="map-topleft">
+          <button
+            className="map-button sidebar-toggle"
+            id="sidebar-toggle"
+            type="button"
+            aria-controls="sidebar"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen((o) => !o)}
+          >
+            Controls
+          </button>
+          <SitesPanel
+            theme={theme}
+            candidates={optimize.candidates}
+            busy={share !== debouncedShare || optimize.status === "loading"}
+            activeId={hoveredCandidate}
+            onHover={setHoveredCandidate}
+            onSelect={(id) => showCandidate(id, true)}
+          />
+        </div>
         <Legend heatmapMode={heatmapMode} basemap={basemap} />
       </div>
 
@@ -215,7 +273,6 @@ export default function MapPage() {
         <Panel title="Model weights" action={<button className="link-button" type="button" onClick={() => setWeights(DEFAULT_WEIGHTS)}>Reset</button>}><WeightSliders weights={weights} onChange={(key, value) => setWeights((w) => ({ ...w, [key]: value }))} onNormalize={normalizeWeights} /></Panel>
         <Panel title="Services"><ServiceFilters services={lookups.services} selected={filters.services} requireAll={filters.requireAllServices} onToggle={toggleService} onRequireAll={(v) => changeFilter("requireAllServices", v)} /></Panel>
         <Panel title="Site filters"><ModelFilters filters={filters} onChange={changeFilter} limit={limit} onLimit={setLimit} /></Panel>
-        <Panel title="Recommended sites"><ResultsList theme={theme} candidates={optimize.candidates} activeId={hoveredCandidate} onHover={setHoveredCandidate} onSelect={(id) => showCandidate(id, true)} /></Panel>
         <CandidateDetail state={detail} onClose={() => setDetail({ siteId: null, status: "idle", data: null, error: null })} />
         <Panel title="Layers"><LayerToggles layers={layers} onToggle={toggleLayer} heatmapMode={heatmapMode} onHeatmapMode={(mode) => { setHeatmapMode(mode); setLayers((l) => ({ ...l, heatmap: true })); }} /></Panel>
         <Panel title="Hospital types"><HospitalTypeFilter hospitals={hospitals} hiddenTypes={hiddenTypes} onToggle={toggleType} /></Panel>

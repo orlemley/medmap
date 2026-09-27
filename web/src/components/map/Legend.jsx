@@ -33,6 +33,7 @@ export default function Legend({ heatmapMode, basemap }) {
       {expanded && (
         <div className="legend-body" id="legend-body">
           <div className="legend-row"><span className="swatch swatch-hospital" />Existing hospital</div>
+          <div className="legend-row"><span className="swatch swatch-hospital approximate" />Hospital, approximate location</div>
           <div className="legend-row"><span className="swatch swatch-candidate"><span>1</span></span>Recommended site (rank)</div>
           <div className="legend-scale">
             <span>Score</span>

@@ -133,6 +133,12 @@ The current geocoder benchmark can change, so cached responses include the
 benchmark, response, and retrieval timestamp. Nonmatches are retained; no postcode
 centroid substitution is made. Boundary ties receive null assignments and flags.
 The geocoder returns approximate street locations, not verified building entrances.
+For unresolved hospital rows, Stage 3 can resolve Census ties, try one
+unambiguous exact-CCN alternate address, and cautiously match a named hospital
+feature from OpenStreetMap. These fallbacks only fill missing coordinates: they
+never add, remove, merge, or re-identify registry facilities. ZIP centroids are
+retained only as search/display fallbacks and never become modeled facility
+coordinates. `quality_report.json` reports counts by method.
 
 ## MUA/P feature semantics
 

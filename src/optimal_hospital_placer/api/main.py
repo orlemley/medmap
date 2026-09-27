@@ -476,14 +476,18 @@ def map_hospitals(
         if not lat_col or not lon_col:
             raise HTTPException(status_code=503, detail={"code":"facility_coordinates_unavailable","message":"Facilities table has no latitude/longitude columns"})
 
-        clauses = [f"{lat_col} IS NOT NULL", f"{lon_col} IS NOT NULL"]
+        fallback_lat = "fallback_latitude" if "fallback_latitude" in cols else None
+        fallback_lon = "fallback_longitude" if "fallback_longitude" in cols else None
+        display_lat = f"coalesce({lat_col}, {fallback_lat})" if fallback_lat else lat_col
+        display_lon = f"coalesce({lon_col}, {fallback_lon})" if fallback_lon else lon_col
+        clauses = [f"{display_lat} IS NOT NULL", f"{display_lon} IS NOT NULL"]
         params: list[Any] = []
         if "facility_type" in cols:
             clauses.append("lower(CAST(facility_type AS VARCHAR)) = 'hospital'")
         box = parse_bbox(bbox)
         if box:
             west,south,east,north = box
-            clauses += [f"{lon_col} BETWEEN ? AND ?", f"{lat_col} BETWEEN ? AND ?"]
+            clauses += [f"{display_lon} BETWEEN ? AND ?", f"{display_lat} BETWEEN ? AND ?"]
             params += [west,east,south,north]
 
         try:
@@ -512,7 +516,9 @@ def map_hospitals(
 
     features = []
     for r in df.to_dict(orient="records"):
-        lat = scalar(r.get(lat_col)); lon = scalar(r.get(lon_col))
+        authoritative = scalar(r.get(lat_col)) is not None and scalar(r.get(lon_col)) is not None
+        lat = scalar(r.get(lat_col)) if authoritative else scalar(r.get(fallback_lat))
+        lon = scalar(r.get(lon_col)) if authoritative else scalar(r.get(fallback_lon))
         props = record(r)
         props.pop(lat_col, None); props.pop(lon_col, None); props.pop("geometry", None)
         fid = str(props.get("facility_id") or props.get("id") or props.get("ccn") or len(features))
@@ -524,7 +530,8 @@ def map_hospitals(
         props.setdefault("zip", props.get("zip") or props.get("zip_code") or "")
         props.setdefault("emergency", bool(props.get("emergency_services") or props.get("has_emergency") or False))
         props.setdefault("rating", props.get("rating") or props.get("hospital_overall_rating"))
-        props.setdefault("loc_quality", props.get("geocode_method") or "exact")
+        props.setdefault("loc_quality", props.get("geocode_method") if authoritative else props.get("fallback_method") or "approximate")
+        props["counts_for_distance_model"] = authoritative
         features.append({"type":"Feature","id":fid,"geometry":{"type":"Point","coordinates":[lon,lat]},"properties":props})
     return feature_collection(features, count=len(features), bbox=parse_bbox(bbox), truncated=len(features)>=limit)
 

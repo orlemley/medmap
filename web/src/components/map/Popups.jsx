@@ -1,10 +1,20 @@
 import { WEIGHTS } from "../../lib/constants.js";
 import { fmt } from "../../lib/format.js";
 
+// How each hospital's position was found (web/api/geocode_hospitals.py,
+// docs/hospital-locations.md). Approximate ones are drawn as hollow rings.
 const LOCATION_NOTES = {
-  zcta: "Location is the center of the hospital's ZIP code, not its street address.",
-  zip3: "ZIP code not found in census data; shown at the nearest ZIP code's center.",
-  county: "ZIP code not found in census data; shown at the county's center.",
+  address: { text: "Located from its street address (U.S. Census Geocoder)." },
+  address_alt: { text: "Located from its street address in CMS's Provider of Services file (U.S. Census Geocoder)." },
+  osm: { text: "Located from OpenStreetMap's map of this hospital." },
+  census_street_interpolation: { text: "Located from its street address (U.S. Census Geocoder)." },
+  census_tie_resolved: { text: "Located by resolving an ambiguous U.S. Census Geocoder address match." },
+  census_alternate_address: { text: "Located from an alternate address linked by its exact CMS identifier." },
+  openstreetmap_hospital: { text: "Located from a conservatively matched OpenStreetMap hospital feature." },
+  zcta: { approximate: true, text: "Approximate location: its address couldn't be matched to a map, so it's shown at the center of its ZIP code." },
+  zcta_centroid: { approximate: true, text: "Approximate display location: no authoritative point was found, so it is shown at its ZIP area's center and excluded from access calculations." },
+  zip3: { approximate: true, text: "Approximate location: its address couldn't be matched to a map, so it's shown at the center of a nearby ZIP code." },
+  county: { approximate: true, text: "Approximate location: its address couldn't be matched to a map, so it's shown at the center of its county." },
 };
 
 function HospitalItem({ h }) {
@@ -21,7 +31,11 @@ function HospitalItem({ h }) {
         <dt>CMS rating</dt><dd>{h.rating ? `${h.rating} / 5` : "Not rated"}</dd>
       </dl>
       {!h.counts_for_coverage && <p className="caveat">Not counted as existing coverage when scoring sites.</p>}
-      <p className="caveat">{LOCATION_NOTES[h.loc_quality]}</p>
+      {LOCATION_NOTES[h.loc_quality] && (
+        <p className={LOCATION_NOTES[h.loc_quality].approximate ? "caveat" : "location-note"}>
+          {LOCATION_NOTES[h.loc_quality].text}
+        </p>
+      )}
     </div>
   );
 }
@@ -30,7 +44,7 @@ export function HospitalPopup({ hospitals }) {
   const many = hospitals.length > 1;
   return (
     <div className="popup">
-      {many && <p className="sub">{hospitals.length} hospitals share this ZIP code location.</p>}
+      {many && <p className="sub">{hospitals.length} hospitals at this spot.</p>}
       <div className={many ? "popup-list multi" : "popup-list"}>
         {hospitals.map((h) => <HospitalItem key={h.id} h={h} />)}
       </div>
@@ -69,6 +83,7 @@ export function CandidatePopup({ site, weights }) {
       </dl>
       <p className="caveat">
         Bars show each Stage 8 component from 0 to 1. Select this site for services, access bands and configurations.
+        The circle is a representative planning point for an area, not a surveyed building parcel.
       </p>
     </div>
   );
