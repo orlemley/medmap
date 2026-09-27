@@ -1,4 +1,7 @@
-/* Shared styles for every MedMap page. Map-only styles live in map.css. */
+/* Shared styles for every MedMap page. Map-only styles live in map.css.
+
+   Colours are variables. The light set is on :root; the dark set replaces it
+   when <html data-theme="dark"> (set by src/theme.jsx and index.html). */
 
 :root {
   --bg: #f8fafc;
@@ -13,16 +16,52 @@
   --danger: #b91c1c;
   --warning-bg: #fef3c7;
   --warning-text: #92400e;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  /* Filled buttons with white text */
+  --accent-strong: #2563eb;
+  --accent-strong-hover: #1d4ed8;
+  --shadow: rgb(15 23 42 / 0.12);
 
-  /* Map marker colours, shared with the legend */
+  /* Map colours shown in the legend; keep in sync with MARKER_COLORS in
+     src/lib/constants.js */
   --hospital: #dc2626;
   --candidate-low: #93c5fd;
   --candidate-high: #1e3a8a;
+  --border-line: #64748b;
 
+  color-scheme: light;
   --radius: 6px;
   --nav-height: 56px;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   color: var(--text);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1120;
+  --surface: #111827;
+  --surface-muted: #1f2937;
+  --border: #334155;
+  --text: #e5e7eb;
+  --text-muted: #9ca3af;
+  --accent: #60a5fa;
+  --accent-hover: #93c5fd;
+  --accent-soft: #172554;
+  --danger: #f87171;
+  --warning-bg: #3a2a0b;
+  --warning-text: #fcd34d;
+  --danger-bg: #2a1215;
+  --danger-border: #7f1d1d;
+  --accent-strong: #2563eb;
+  --accent-strong-hover: #3b82f6;
+  --shadow: rgb(0 0 0 / 0.5);
+
+  --hospital: #ef4444;
+  --candidate-low: #bfdbfe;
+  --candidate-high: #2563eb;
+  --border-line: #94a3b8;
+
+  color-scheme: dark;
 }
 
 * {
@@ -117,7 +156,29 @@ a:hover {
 }
 
 .nav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   margin-left: auto;
+}
+
+/* Light/dark switch (components/Layout.jsx) */
+.theme-toggle {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: var(--text-muted);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--surface-muted);
 }
 
 .nav-right a {
@@ -168,7 +229,7 @@ a:hover {
   font: inherit;
   font-weight: 600;
   color: #fff;
-  background: var(--accent);
+  background: var(--accent-strong);
   border: 0;
   border-radius: var(--radius);
   text-decoration: none;
@@ -177,7 +238,7 @@ a:hover {
 
 .button:hover {
   color: #fff;
-  background: var(--accent-hover);
+  background: var(--accent-strong-hover);
 }
 
 .button.secondary {
@@ -282,7 +343,8 @@ a:hover {
     padding: 0 12px;
   }
 
-  .nav-right {
+  /* Keep the theme switch on phones; the GitHub link is on the About page. */
+  .nav-github {
     display: none;
   }
 

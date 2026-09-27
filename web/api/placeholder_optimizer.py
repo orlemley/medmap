@@ -30,12 +30,18 @@ Scoring (all distances are straight-line miles, not driving distance):
 """
 
 import math
+import os
 import threading
 from collections import OrderedDict
 
 EARTH_RADIUS_MI = 3958.8
 CELL_DEG = 0.5  # spatial grid cell size, in degrees
-CACHE_SIZE = 16  # (radius, state) factor tables kept in memory
+# (radius, state) factor tables kept in memory. Each nationwide one is ~40 MB,
+# so hosted demos with little RAM set MEDMAP_CACHE_SIZE lower (e.g. 4).
+try:
+    CACHE_SIZE = max(1, int(os.environ.get("MEDMAP_CACHE_SIZE", "16")))
+except ValueError:
+    CACHE_SIZE = 16
 
 
 def haversine_mi(lat1, lon1, lat2, lon2):
@@ -87,6 +93,8 @@ class Grid:
 
 
 class PlaceholderOptimizer:
+    name = "placeholder"
+
     def __init__(self, dataset):
         self.data = dataset
         self.tracts = dataset.tracts

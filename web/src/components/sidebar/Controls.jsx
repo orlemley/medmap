@@ -14,6 +14,24 @@ export function Panel({ title, action, children }) {
   );
 }
 
+/** A− / A+ buttons for the map page's text size (sidebar, legend, popups). */
+export function TextSizeControl({ scale, canSmaller, canLarger, onSmaller, onLarger }) {
+  return (
+    <div className="text-size" role="group" aria-label="Text size">
+      <span className="text-size-label">Text size</span>
+      <button type="button" className="text-size-button smaller" onClick={onSmaller} disabled={!canSmaller}
+        aria-label="Smaller text" title="Smaller text">
+        A−
+      </button>
+      <output aria-live="polite">{Math.round(scale * 100)}%</output>
+      <button type="button" className="text-size-button larger" onClick={onLarger} disabled={!canLarger}
+        aria-label="Larger text" title="Larger text">
+        A+
+      </button>
+    </div>
+  );
+}
+
 export function StatusBar({ kind, children }) {
   return (
     <div className={kind ? `status ${kind}` : "status"} role="status" aria-live="polite">
@@ -116,7 +134,7 @@ export function NumberField({ id, label, value, min, max, onCommit }) {
   );
 }
 
-export function ResultsList({ candidates, activeId, onHover, onSelect }) {
+export function ResultsList({ theme, candidates, activeId, onHover, onSelect }) {
   if (!candidates.features.length) return <p className="empty">No results yet.</p>;
   return (
     <ol className="results">
@@ -134,7 +152,7 @@ export function ResultsList({ candidates, activeId, onHover, onSelect }) {
               onBlur={() => onHover(null)}
               onClick={() => onSelect(f.id)}
             >
-              <span className="result-rank" style={{ background: scoreColor(p.score), color: scoreTextColor(p.score) }}>
+              <span className="result-rank" style={{ background: scoreColor(p.score, theme), color: scoreTextColor(p.score, theme) }}>
                 {p.rank}
               </span>
               <span className="result-name">{p.county} County, {p.state}</span>
