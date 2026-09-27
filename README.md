@@ -236,6 +236,15 @@ python web/api/build_data.py          # reads raw/, writes web/api/medmap_data.j
 Then commit the updated `medmap_data.json.gz`. To run straight from the CSVs
 instead, use `python web/api/server.py --raw raw`.
 
+`build_data.py` also **locates every hospital from its street address**
+(`web/api/geocode_hospitals.py`), because the CMS files have no coordinates.
+It uses the U.S. Census Geocoder, a second CMS address file, and OpenStreetMap.
+The first run downloads for a while, mostly because the free OpenStreetMap
+servers are slow. Answers are cached in `raw/_geocode_cache/`, so later runs
+take seconds and an interrupted run resumes. `--offline` reuses the cache
+without going online. Why some addresses can't be matched, and how each step
+fills the gap: **[docs/hospital-locations.md](docs/hospital-locations.md)**.
+
 ---
 
 ## What's in `web/`
@@ -374,7 +383,7 @@ Notes:
 | Control | What it does |
 |---|---|
 | **Light / dark** (sun/moon button in the top bar) | Switches the whole site, including the map, between light and dark. Until you pick one, it follows your device's setting. Your choice is remembered in this browser. |
-| **Map / Satellite** (top right of the map) | *Map* shows the street map (light or dark, following the theme). *Satellite* shows public-domain aerial photos from USGS, with place names on top. The photos cover the U.S. and are sharp up to about neighborhood zoom; closer than that they're enlarged. |
+| **Map / Satellite** (top right of the map) | *Satellite* (the default) shows public-domain aerial photos from USGS, with place names on top. *Map* shows the street map (light or dark, following the theme). The photos cover the U.S. and are sharp up to about neighborhood zoom; closer than that they're enlarged. The map style and heatmap setting you last used are remembered in this browser. |
 | **State borders** | Always drawn: grey lines on the street map, white on satellite photos, plus country borders. |
 | **Text size** (A− / A+ at the top of the sidebar) | Makes the sidebar, legend and map popups smaller or larger (90–150%). Remembered in this browser. |
 | **Reset view** (house button under the zoom buttons) | Flies back to the starting view: the selected state, or the whole U.S., facing north with no tilt. |
@@ -383,7 +392,7 @@ Notes:
 | **Weights** (4 sliders, 0–1) | How much population, distance, shortage bonus and cost matter. Results update 300 ms after you stop dragging (debounced), so dragging doesn't flood the API. The total turns amber if it's far from 1. **Make total 1** rescales the weights, and **Reset** restores the defaults. The server rescales weights anyway, so the total only needs to be roughly 1. |
 | **Coverage radius** | Slider (5–100 mi) or number box. This is the distance at which a hospital counts as "reachable". It's used in scoring, drawn as the dashed rings, and used by the "beyond radius" heatmap. |
 | **Sites** | How many recommendations to return (1–25). |
-| **Recommended sites** list | Hover a row to highlight the site on the map. Click it to fly there and open its score breakdown. |
+| **Recommended sites** (panel at the top left of the map) | The ranked sites. Hover a row to highlight the site on the map; click it to fly there and open its score breakdown. Click the panel's title to fold it away. On phones it's a **Top sites** button next to **Controls**, and it folds away after you pick a site. |
 | **Layers** | Show or hide hospitals, recommended sites, coverage rings and the heatmap. Hiding a layer only changes its `visibility`, so it's never removed and re-added. The **Heatmap** button in the map's top-right corner (as on the whiteboard sketch) is a shortcut for the same switch. |
 | **Heatmap shows** | *All population* (tract populations), or *Population outside the radius of any hospital*, which shows the underserved people the scoring is trying to reach. |
 | **Hospital types** | Show or hide markers by CMS hospital type (with counts). This is display only: scoring always uses the coverage hospitals listed [below](#data-assumptions). |
@@ -393,9 +402,11 @@ On the map:
 
 - **Hover** a hospital or site to highlight it.
 - **Click a hospital** to see its name, type, address, phone, ownership,
-  emergency services, CMS star rating, and how its location was determined.
-  When several hospitals share a ZIP code (and so a point), the popup lists all
-  of them.
+  emergency services, CMS star rating, and how its location was found. Solid
+  red dots are placed from the hospital's street address or OpenStreetMap.
+  **Hollow red rings** are the few hospitals whose address couldn't be matched
+  to any map; they sit at their ZIP code's center, and the popup says so. When
+  several hospitals are at the same spot, the popup lists all of them.
 - **Click a recommended site** to see the score breakdown. There's a bar for each
   factor (0–1) and its weighted contribution to the score, plus the underlying
   numbers: people gaining coverage, average miles saved, distance to the
@@ -557,8 +568,9 @@ have no coverage hospital within 30 straight-line miles.
 
 This is the Step 0 exploration of `raw/`. Every CSV was profiled (columns,
 inferred types, row counts, sample rows). **No hospital file has
-latitude/longitude**, so hospitals are placed by ZIP code (see
-[assumptions](#data-assumptions)).
+latitude/longitude**, so hospitals are located from their street addresses
+(see [assumptions](#data-assumptions) and
+[docs/hospital-locations.md](docs/hospital-locations.md)).
 
 ### Used by the map
 
@@ -651,8 +663,12 @@ current `raw/` snapshot.
 
 - **Straight-line distance, not driving distance.** Mountains, rivers and road
   networks are ignored.
-- **ZIP-centroid hospital locations** can be several miles off, more in large
-  rural ZIPs.
+- **Hospital locations** from the Census Geocoder sit on the street in front
+  of the hospital, not on the building. A few percent can't be matched and stay
+  at their ZIP code's center (hollow rings). See
+  [docs/hospital-locations.md](docs/hospital-locations.md).
+- **Recommended sites mark the middle of a census tract** (an area), not a
+  specific plot of land.
 - **Placeholder scoring:** no greedy re-scoring, no hospital capacity (beds),
   and no measure of existing hospitals' load. "Lifting burden off existing
   hospitals" is only approximated by covering people who are far from any.

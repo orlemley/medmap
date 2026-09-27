@@ -11,6 +11,8 @@ const BUILT_WITH = [
   ["React", "Components for the pages, map controls and popups."],
   ["MapLibre GL JS", "Open-source map rendering in the browser."],
   ["OpenFreeMap", "Free OpenStreetMap basemap tiles."],
+  ["USGS National Map", "Public-domain satellite and aerial photos."],
+  ["U.S. Census Geocoder and OpenStreetMap", "Hospital street addresses turned into map locations."],
   ["Python", "Data loading and the API, standard library only."],
 ];
 

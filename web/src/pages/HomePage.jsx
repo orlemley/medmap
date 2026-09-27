@@ -15,7 +15,8 @@ const FACTORS = [
 
 const SOURCES = [
   ["CMS Hospital General Information", "Existing hospitals: name, type, address, ZIP, rating"],
-  ["CDC PLACES (tract and ZCTA)", "Tract population and centroids; ZIP-area centroids used to place hospitals"],
+  ["U.S. Census Geocoder, OpenStreetMap", "Turning hospital addresses into map locations"],
+  ["CDC PLACES (tract and ZCTA)", "Tract population and centroids; ZIP-area centers as a fallback for hospital locations"],
   ["HRSA MUA/P", "Medically Underserved Areas and Populations"],
   ["HRSA HPSA (primary care)", "Health Professional Shortage Areas"],
   ["USDA RUCA 2020", "Population density and rural-urban codes per tract"],
@@ -76,8 +77,9 @@ export default function HomePage() {
 
         <h2>Limitations</h2>
         <p className="note">
-          This is a hackathon prototype. Distances are straight-line, not driving distance. Hospital locations are
-          ZIP-code centroids, not street addresses. The scoring on the map is a placeholder until the placement
+          This is a hackathon prototype. Distances are straight-line, not driving distance. Most hospitals are placed
+          from their street address; the few whose address couldn't be matched to a map are shown at their ZIP
+          code's center (hollow rings on the map). The scoring on the map is a placeholder until the placement
           algorithm is finished.
         </p>
       </main>

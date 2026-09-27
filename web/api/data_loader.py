@@ -17,6 +17,9 @@ import json
 import os
 import re
 import time
+from collections import Counter
+
+from geocode_hospitals import PRECISE, geocode_hospitals
 
 csv.field_size_limit(10**9)
 
@@ -89,7 +92,9 @@ def _to_int(text, default=0):
 class Dataset:
     """Everything the API needs, loaded once at startup."""
 
-    def __init__(self, raw_dir):
+    def __init__(self, raw_dir, geocode="cache"):
+        """geocode: "online" looks up hospital locations (build_data.py),
+        "cache" reuses earlier lookups from raw/_geocode_cache/ only, "off" skips it."""
         self.raw_dir = raw_dir
         self.stats = {"source": "raw CSVs"}
         t0 = time.time()
@@ -97,6 +102,8 @@ class Dataset:
         self._attach_ruca()
         self._attach_shortage()
         self.hospitals = self._load_hospitals()
+        if geocode != "off":
+            self._locate_hospitals(online=geocode == "online")
         self.stats["load_seconds"] = round(time.time() - t0, 1)
         self.states = sorted({t["state"] for t in self.tracts})
 
@@ -227,6 +234,20 @@ class Dataset:
 
     # --- Hospitals --------------------------------------------------------------
 
+    def _locate_hospitals(self, online):
+        """Move hospitals from ZIP centres to their real locations (geocode_hospitals.py)."""
+        cache_dir = os.path.join(self.raw_dir, "_geocode_cache")
+        steps = geocode_hospitals(self.hospitals, self.raw_dir, cache_dir, online=online)
+        before = self.stats["hospital_location_quality"]
+        counts = Counter(h["loc_quality"] for h in self.hospitals)
+        self.stats["hospital_location_quality"] = {
+            **dict(sorted(counts.items(), key=lambda kv: -kv[1])),
+            "unplaced": before["unplaced"],
+            "outside_places_states": before["outside_places_states"],
+        }
+        self.stats["hospitals_precise"] = sum(counts[q] for q in PRECISE)
+        self.stats["geocoding_steps"] = steps
+
     def _load_hospitals(self):
         """CMS Hospital General Information, placed at its ZIP's ZCTA centroid.
 
@@ -289,7 +310,8 @@ class Dataset:
                     "emergency": row["Emergency Services"] == "Yes",
                     "rating": row["Hospital overall rating"] if row["Hospital overall rating"].isdigit() else None,
                     "counts_for_coverage": row["Hospital Type"] in COVERAGE_TYPES,
-                    "loc_quality": quality,
+                    "loc_quality": quality,  # replaced by geocode_hospitals.py when it finds the real spot
+                    "loc_match": None,
                     "lon": point[0],
                     "lat": point[1],
                 })

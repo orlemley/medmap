@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { API_BASE } from "../config.js";
 import Legend from "../components/map/Legend.jsx";
+import SitesPanel from "../components/map/SitesPanel.jsx";
 import MedMap from "../components/map/MedMap.jsx";
 import { CandidatePopup, HospitalPopup } from "../components/map/Popups.jsx";
 import {
@@ -10,7 +11,6 @@ import {
   NumberField,
   Panel,
   RegionSelect,
-  ResultsList,
   StatusBar,
   TextSizeControl,
   WeightSliders,
@@ -55,6 +55,22 @@ function ApiHelp({ error }) {
 
 const isPhone = () => window.matchMedia("(max-width: 800px)").matches;
 
+// Map style (satellite or street map) and heatmap on/off, remembered per
+// browser. First-time visitors get satellite photos with the heatmap on.
+const MAP_VIEW_KEY = "medmap-map-view";
+const DEFAULT_MAP_VIEW = { basemap: "satellite", heatmap: true };
+function readMapView() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MAP_VIEW_KEY));
+    return {
+      basemap: saved?.basemap === "streets" || saved?.basemap === "satellite" ? saved.basemap : DEFAULT_MAP_VIEW.basemap,
+      heatmap: typeof saved?.heatmap === "boolean" ? saved.heatmap : DEFAULT_MAP_VIEW.heatmap,
+    };
+  } catch {
+    return DEFAULT_MAP_VIEW;
+  }
+}
+
 // Text size for the sidebar, legend and popups, remembered per browser.
 const TEXT_SCALE_KEY = "medmap-text-scale";
 function readTextScale() {
@@ -75,13 +91,23 @@ export default function MapPage() {
   const [radius, setRadius] = useState(initial.radius);
   const [k, setK] = useState(initial.k);
   const [region, setRegion] = useState(initial.region);
-  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: true, heatmap: false });
+  const [initialView] = useState(readMapView);
+  const [layers, setLayers] = useState({ hospitals: true, candidates: true, rings: true, heatmap: initialView.heatmap });
   const [heatmapMode, setHeatmapMode] = useState("all");
   const [hiddenTypes, setHiddenTypes] = useState(() => new Set());
   const [sidebarOpen, setSidebarOpen] = useState(() => !isPhone());
-  const [basemap, setBasemap] = useState("streets"); // or "satellite"
+  const [basemap, setBasemap] = useState(initialView.basemap); // "satellite" or "streets"
   const [textScale, setTextScale] = useState(readTextScale);
   const { theme } = useTheme();
+
+  // Remember the map style and heatmap for next time.
+  useEffect(() => {
+    try {
+      localStorage.setItem(MAP_VIEW_KEY, JSON.stringify({ basemap, heatmap: layers.heatmap }));
+    } catch {
+      // not saved; still works for this visit
+    }
+  }, [basemap, layers.heatmap]);
 
   const changeTextScale = (step) => {
     const i = TEXT_SCALES.indexOf(textScale) + step;
@@ -327,16 +353,27 @@ export default function MapPage() {
             <span className="heatmap-dot" aria-hidden="true" /> Heatmap
           </button>
         </div>
-        <button
-          className="map-button sidebar-toggle"
-          id="sidebar-toggle"
-          type="button"
-          aria-controls="sidebar"
-          aria-expanded={sidebarOpen}
-          onClick={() => setSidebarOpen((o) => !o)}
-        >
-          Controls
-        </button>
+        {/* Top-left: the phone-only Controls button, then the recommended sites */}
+        <div className="map-topleft">
+          <button
+            className="map-button sidebar-toggle"
+            id="sidebar-toggle"
+            type="button"
+            aria-controls="sidebar"
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen((o) => !o)}
+          >
+            Controls
+          </button>
+          <SitesPanel
+            theme={theme}
+            candidates={optimize.candidates}
+            busy={query !== debouncedQuery || optimize.status === "loading"}
+            activeId={hoveredCandidate}
+            onHover={setHoveredCandidate}
+            onSelect={(id) => showCandidate(id, true)}
+          />
+        </div>
         <Legend heatmapMode={heatmapMode} basemap={basemap} />
       </div>
 
@@ -391,16 +428,6 @@ export default function MapPage() {
             <NumberField id="radius-input" label="Radius (mi)" value={radius} min={RADIUS.min} max={RADIUS.max} onCommit={setRadius} />
             <NumberField id="k-input" label="Sites" value={k} min={SITES.min} max={SITES.max} onCommit={setK} />
           </div>
-        </Panel>
-
-        <Panel title="Recommended sites">
-          <ResultsList
-            theme={theme}
-            candidates={optimize.candidates}
-            activeId={hoveredCandidate}
-            onHover={setHoveredCandidate}
-            onSelect={(id) => showCandidate(id, true)}
-          />
         </Panel>
 
         <Panel title="Layers">
