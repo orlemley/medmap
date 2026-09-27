@@ -1,4 +1,4 @@
-# Run all four ETL stages
+# Run the complete ETL pipeline (Stages 1–8)
 
 Requires Python 3.10+, the dependencies in each stage's `requirements.txt`,
 existing raw downloads in `data/raw`, and prepared TIGER boundaries (see
@@ -10,6 +10,7 @@ other raw inputs and boundaries must already be prepared. Use
 From the repository root:
 
 ```powershell
+# Reproduce the latest large nationwide profile (about 34k Stage 8 sites):
 python src/optimal_hospital_placer/etl/run_etl.py
 
 # Also geocode addresses that are missing from the existing cache:
@@ -19,22 +20,37 @@ python src/optimal_hospital_placer/etl/run_etl.py --geocode
 python src/optimal_hospital_placer/etl/run_etl.py --states 17 --geocode
 ```
 
-Runs stages 1, 2, 3, then ACS enrichment (stage 4) using the same Python interpreter, showing each stage's
-output live. Each stage receives the successful snapshot from the preceding
-stage. A failure stops the pipeline before any later stage starts.
+Runs Stages 1–5, the Stage 6A screen, and Stages 6–8 using the same Python
+interpreter, showing every exact child command. Each stage receives the newly
+successful snapshot from the preceding stage. A failure stops the pipeline
+before later stages begin.
 
-Every invocation rebuilds stages 1–3 in new run directories. ACS preparation
+The default large-sample profile matches the most recent successful manifests:
+
+- Stage 6A keeps up to 300 sites per state plus the top 15% and severe-access cases.
+- Stage 6 generates two candidate points per shortlisted tract.
+- Stage 7 writes 3,000 finalists and 100 routing-refinement sites.
+- Stage 8 reads `top-sites` with no maximum, preserving the full discoverable
+  candidate pool rather than only the 3,000 finalist subset.
+
+All of these thresholds are exposed by `--help`; command-line overrides are
+recorded in `data/etl/latest_success.json` with every published run directory.
+Nationwide runs also stop if Stage 6A falls below 10,000 shortlisted tracts or
+Stages 6/8 fall below 20,000 sites. This catches accidental sample collapse;
+`--allow-small-output` disables the guard, and `--states` disables nationwide
+floors automatically.
+
+Every invocation rebuilds the stages in new run directories. ACS preparation
 reuses its checksum-verified checkpoints. Previous
 outputs remain intact, and stage 3 reuses the geocode cache. This runner does not
 add checkpoint resumption. Stage 3 retries temporary geocoding failures as
 described in its README. Avoid concurrent ETL runs using the
 same output directories or cache.
 
-The final directory printed by the runner contains `tracts.parquet`,
-`counties.parquet`, and `facilities.parquet`. Without `--geocode`, only cached
-facility coordinates are available. `--boundary-dir` and `--geocode-cache`
-override the standard reference directories. For other stage-specific options,
-use the individual stage runners.
+The final directory printed by the runner is the Stage 8 run containing final
+candidates, service recommendations, travel-access bands, and the precise-routing
+queue. Without `--geocode`, only cached facility coordinates are available.
+`--boundary-dir` and `--geocode-cache` override the reference directories.
 
 The runner was not executed during implementation.
 
